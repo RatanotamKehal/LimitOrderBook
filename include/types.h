@@ -1,14 +1,14 @@
 #pragma once
 
-alias Price = uint64_t;
-alias Quantity = uint64_t;
+using Price = uint64_t;
+using Quantity = uint64_t;
 
-enum class Side {
+enum class Side : uint64_t {
 	Buy,
 	Sell,
 };
 
-enum class OrderType {
+enum class OrderType : uint64_t {
 	Limit,
 	Market,
 };
@@ -17,6 +17,7 @@ struct Order {
 	uint64_t order_id;
 	Price price;
 	Quantity quantity;
-	Side side;
 	uint64_t arrival_time; // timestamp in ms
+	Side side;
+	OrderType order_type;
 };

@@ -1,6 +1,16 @@
 #pragma once
+#include <map>
+#include <deque>
+#include "types.h"
 
-void add_order(Order& order);
+class LOB {
+private:
+	std::map<Price, std::deque<Order>> buy_orders;
+	std::map<Price, std::deque<Order>> sell_orders;
 
-void cancel_order(uint64_t order_id);
+public:
+	void add(Order& order);
+
+	void cancel(uint64_t order_id);
+};
 
