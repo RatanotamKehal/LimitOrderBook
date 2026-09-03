@@ -1,5 +1,6 @@
 #include "lob.h"
 #include <chrono>
+#include <cassert>
 
 std::vector<Trade> lob::LOB::add(Order order) {
 	std::vector<Trade> trades{};
@@ -45,7 +46,7 @@ std::vector<Trade> lob::LOB::match_order(Order& taker_order) {
             Order& maker_order = order_queue.front();
 
             Quantity trade_quantity = std::min(taker_order.quantity, maker_order.quantity);
-            Trade trade = {maker_order.order_id, taker_order.order_id, best_price, trade_quantity, 
+            Trade trade = {maker_order.order_id, taker_order.order_id, best_price, trade_quantity,
             std::chrono::system_clock::now().time_since_epoch().count() };
             trades.push_back(trade);
             
@@ -94,3 +95,40 @@ std::vector<Trade> lob::LOB::match_order(Order& taker_order) {
     return trades;
 }
 
+bool lob::LOB::cancel(const CancelRequest& request) {
+    auto it = m_orderID_map.find(request.id);
+
+    if (it == m_orderID_map.end()) { return false; }
+    
+    Order& order = it->second;
+
+    std::deque<Order>* order_queue_ptr = nullptr;
+    if (order.side == Side::Buy) {
+       order_queue_ptr = &m_buy_orders[order.price];
+    }
+    else {
+        order_queue_ptr = &m_sell_orders[order.price];
+    }
+    std::deque<Order>& order_queue = *order_queue_ptr;
+
+    for (auto i = order_queue.begin(); i != order_queue.end(); i++) {
+        if (i->order_id == order.order_id) {
+            order_queue.erase(i);
+            if (order_queue.empty()) {
+                if (order.side == Side::Buy) {
+                    m_buy_orders.erase(order.price);
+                }
+                else {
+                    m_sell_orders.erase(order.price);
+                }
+            }
+
+            m_orderID_map.erase(it);
+
+            return true;
+        }
+    }
+    
+    assert(false && "Order found in ID map but missing from the price queue.");
+    return false;
+}
