@@ -1,4 +1,5 @@
 #include "lob.h"
+#include <chrono>
 
 std::vector<Trade> lob::LOB::add(Order order) {
 	std::vector<Trade> trades{};
@@ -28,4 +29,68 @@ std::vector<Trade> lob::LOB::add(Order order) {
 	return trades;
 }
 
-lob::LOB::cancel
+std::vector<Trade> lob::LOB::match_order(Order& taker_order) {
+    std::vector<Trade> trades;
+
+    if (taker_order.side == Side::Buy) {
+        while (taker_order.quantity > 0 && !m_sell_orders.empty()) {
+            auto best_ask_iterator = m_sell_orders.begin();
+            Price best_price = best_ask_iterator->first;
+
+            if (taker_order.order_type == OrderType::Limit && taker_order.price < best_price) {
+                break;
+            }
+
+            std::deque<Order>& order_queue = best_ask_iterator->second;
+            Order& maker_order = order_queue.front();
+
+            Quantity trade_quantity = std::min(taker_order.quantity, maker_order.quantity);
+            Trade trade = {maker_order.order_id, taker_order.order_id, best_price, trade_quantity, 
+            std::chrono::system_clock::now().time_since_epoch().count() };
+            trades.push_back(trade);
+            
+            taker_order.quantity -= trade_quantity;
+            maker_order.quantity -= trade_quantity;
+
+            if (maker_order.quantity == 0) {
+                m_orderID_map.erase(maker_order.order_id);
+                order_queue.pop_front();
+            }
+            if (order_queue.empty()) {
+                m_sell_orders.erase(best_ask_iterator);
+            }
+        }
+    }
+    else {
+        while (taker_order.quantity > 0 && !m_buy_orders.empty()) {
+            auto best_bid_iterator = m_buy_orders.begin();
+			Price best_price = best_bid_iterator->first;
+
+            if (taker_order.order_type == OrderType::Limit && taker_order.price > best_price) {
+                break;
+            }
+
+			std::deque<Order>& order_queue = best_bid_iterator->second;
+			Order& maker_order = order_queue.front();
+
+            Quantity trade_quantity = std::min(taker_order.quantity, maker_order.quantity);
+            Trade trade = {maker_order.order_id, taker_order.order_id, best_price, trade_quantity,
+                std::chrono::system_clock::now().time_since_epoch().count() };
+            trades.push_back(trade);
+            
+            taker_order.quantity -= trade_quantity;
+            maker_order.quantity -= trade_quantity;
+
+            if (maker_order.quantity == 0) {
+                m_orderID_map.erase(maker_order.order_id);
+                order_queue.pop_front();
+            }
+            if (order_queue.empty()) {
+                m_buy_orders.erase(best_bid_iterator);
+			}
+		}
+    }
+
+    return trades;
+}
+
