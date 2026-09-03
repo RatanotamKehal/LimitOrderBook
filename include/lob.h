@@ -1,18 +1,24 @@
 #pragma once
+#include <map>
+#include <deque>
 #include <vector>
 #include <unordered_map>
 #include "types.h"
 
-class LOB {
-private:
-	std::vector<PriceLevel> buy_orders;
-	std::vector<PriceLevel> sell_orders;
-	std::vector<Order> mem_pool;
-	std::vector<OrderIndex> order_map;
+namespace lob {
 
-public:
-	void add(Order& order);
+	class LOB {
+	private:
+		std::map<Price, std::deque<Order>, std::greater<Price>> m_buy_orders;
+		std::map<Price ,std::deque<Order>, std::less<Price>> m_sell_orders;
+		std::unordered_map<OrderID, Order> m_orderID_map;
+		std::vector<Trade> match_order(Order& taker_order);
 
-	void cancel(uint64_t order_id);
-};
+	public:
+		std::vector<Trade> add(Order order);
+
+		bool cancel(const CancelRequest& request);
+	};
+}
+
 
