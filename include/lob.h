@@ -16,8 +16,8 @@ namespace lob {
 
 	public:
 		std::vector<Trade> add(Order order);
-
 		bool cancel(const CancelRequest& request);
+		bool has_order(OrderID id) const;
 	};
 }
 
