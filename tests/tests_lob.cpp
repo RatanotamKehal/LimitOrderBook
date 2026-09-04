@@ -28,4 +28,16 @@ namespace lob {
         EXPECT_TRUE(trades1.empty());
         EXPECT_TRUE(trades2.empty());
     }
+
+    TEST(LOBTest, ExactFill) {
+        LOB book;
+        Order buy_order = createOrder(100, 100, Side::Buy);
+        Order sell_order = createOrder(100, 100, Side::Sell);
+
+        book.add(buy_order);
+        std::vector<Trade> trade = book.add(sell_order);
+
+        EXPECT_TRUE(trade.size() == 1);
+    }
+
 }
