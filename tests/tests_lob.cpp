@@ -72,4 +72,23 @@ namespace lob {
         EXPECT_FALSE(book.has_order(sell_order.order_id));
     }   
 
+    TEST(LOBTest, PriceTimePriority) {
+        LOB book;
+        Order sell_order1 = createOrder(101, 10, Side::Sell);
+        Order sell_order2 = createOrder(102, 10, Side::Sell);
+        Order sell_order3 = createOrder(103, 10, Side::Sell);
+        Order buy_order = createOrder(0, 25, Side::Buy, OrderType::Market);
+        // Note that for a market order price is irrelevant
+
+        book.add(sell_order1);
+        book.add(sell_order2);
+        book.add(sell_order3);
+        std::vector<Trade> trade = book.add(buy_order);
+
+        EXPECT_TRUE(trade.size() == 3);
+        EXPECT_TRUE(trade.at(0).quantity == 10);
+        EXPECT_TRUE(trade.at(1).quantity == 10);
+        EXPECT_TRUE(trade.at(2).quantity == 5);
+    }
+
 }
