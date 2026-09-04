@@ -8,6 +8,11 @@ bool lob::LOB::has_order(OrderID id) const {
     if (it == m_orderID_map.end()) { return false; }
     else { return true; }
 }
+
+lob::Timestamp lob::getTime() {
+    return std::chrono::system_clock::now().time_since_epoch().count();
+}
+
 std::vector<Trade> lob::LOB::add(Order order) {
 	std::vector<Trade> trades{};
 
