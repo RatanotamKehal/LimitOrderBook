@@ -3,10 +3,7 @@
 #include <cassert>
 
 bool lob::LOB::has_order(OrderID id) const {
-    auto it = m_orderID_map.find(id);
-
-    if (it == m_orderID_map.end()) { return false; }
-    else { return true; }
+    return m_orderID_map.find(id) != m_orderID_map.end();
 }
 
 lob::Timestamp lob::getTime() {
