@@ -66,6 +66,14 @@ static void BM_OrderBook(benchmark::State& state) {
 	}
 
 	for (auto _ : state) {
+		LOB book;
 
+		for (const auto& cmd : commands) {
+			if (cmd.is_cancel) { book.cancel(CancelRequest{ cmd.order.order_id }); }
+			else { book.add(cmd.order); }
+		}
 	}
 }
+
+BENCHMARK(BM_OrderBook)->Unit(benchmark::kMillisecond);
+BENCHMARK_MAIN();
