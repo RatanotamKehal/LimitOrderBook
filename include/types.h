@@ -31,15 +31,15 @@ namespace lob {
 	};
 
 	struct Trade {
-		OrderId maker_id;
-		OrderId taker_id;
+		OrderID maker_id;
+		OrderID taker_id;
 		Price price;
 		Quantity quantity;
 		Timestamp timestamp;
 	};
 
 	struct CancelRequest {
-		OrderId id;
+		OrderID id;
 	};
 
 	static_assert(sizeof(Order) == 40, "Order struct size is not 40 bytes");
