@@ -62,4 +62,14 @@ namespace lob {
         EXPECT_TRUE(book.has_order(sell_order.order_id));
     }
 
+    TEST(LOBTest, AddZero) {
+        LOB book;
+
+        Order buy_order = createOrder(100, 0, Side::Buy);
+        Order sell_order = createOrder(100, 0, Side::Sell);
+
+        EXPECT_FALSE(book.has_order(buy_order.order_id));
+        EXPECT_FALSE(book.has_order(sell_order.order_id));
+    }   
+
 }
