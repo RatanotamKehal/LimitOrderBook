@@ -40,4 +40,15 @@ namespace lob {
         EXPECT_TRUE(trade.size() == 1);
     }
 
+    TEST(LOBTest, PartialFillBuy) {
+        LOB book;
+        Order buy_order = createOrder(100, 100, Side::Buy);
+        Order sell_order = createOrder(100, 50, Side::Sell);
+        book.add(sell_order);
+        std::vector<Trade> trade = book.add(buy_order);
+
+        EXPECT_TRUE(trade.size() == 1);
+        EXPECT_TRUE(book.has_order(buy_order.order_id));
+    }
+
 }
