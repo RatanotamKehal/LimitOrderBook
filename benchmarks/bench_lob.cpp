@@ -42,10 +42,15 @@ static void BM_OrderBook(benchmark::State& state) {
 			active_limits_ids.push_back(order.order_id);
 			commands.push_back(Command{false, order});
 		}
-		else if (roll <= 90) {
-			std::uniform_int_distribution<int> list_distrib(0, active_limits_ids.size());
+		else if (roll <= 90 && !active_limits_ids.empty()) {
+			std::uniform_int_distribution<int> list_distrib(0, active_limits_ids.size() - 1);
 			auto random_index = list_distrib(gen);
-			commands.push_back(Command{ true, commands.at(random_index).order});
+
+			Order cancel_order;
+			OrderID order_id = active_limits_ids[random_index];
+			cancel_order.order_id = order_id;
+
+			commands.push_back(Command{ true, cancel_order });
 		}
 		else {
 			order = {
@@ -56,7 +61,6 @@ static void BM_OrderBook(benchmark::State& state) {
 				OrderType::Market,
 				side,
 			};
-			active_limits_ids.push_back(order.order_id);
 			commands.push_back(Command{ false, order });
 		}
 	}
