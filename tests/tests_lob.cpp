@@ -17,4 +17,15 @@ namespace lob {
         };
     }
 
+    TEST(LOBTest, RestingOrders) {
+        LOB book;
+        Order buy_order = createOrder(100, 50, Side::Buy);
+        Order sell_order = createOrder(105, 50, Side::Sell);
+
+        std::vector<Trade> trades1 = book.add(buy_order);
+        std::vector<Trade> trades2 = book.add(sell_order);
+
+        EXPECT_TRUE(trades1.empty());
+        EXPECT_TRUE(trades2.empty());
+    }
 }
