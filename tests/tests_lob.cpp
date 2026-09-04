@@ -91,4 +91,17 @@ namespace lob {
         EXPECT_TRUE(trade.at(2).quantity == 5);
     }
 
+    TEST(LOBTest, Cancellations) {
+        LOB book;
+        Order sell_order = createOrder(101, 10, Side::Sell);
+        CancelRequest cancel_request{ sell_order.order_id };
+
+        book.add(sell_order);
+
+        bool cancelled = book.cancel(cancel_request);
+        bool cancelled_failure = book.cancel(cancel_request);
+        
+        EXPECT_TRUE(cancelled);
+        EXPECT_FALSE(cancelled_failure);
+    }
 }
