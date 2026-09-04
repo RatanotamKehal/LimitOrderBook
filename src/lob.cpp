@@ -2,15 +2,17 @@
 #include <chrono>
 #include <cassert>
 
-bool lob::LOB::has_order(OrderID id) const {
+using namespace lob;
+
+bool LOB::has_order(OrderID id) const {
     return m_orderID_map.find(id) != m_orderID_map.end();
 }
 
-lob::Timestamp lob::getTime() {
+Timestamp getTime() {
     return std::chrono::system_clock::now().time_since_epoch().count();
 }
 
-std::vector<Trade> lob::LOB::add(Order order) {
+std::vector<Trade> LOB::add(Order order) {
 	std::vector<Trade> trades{};
 
 	if (order.order_type == OrderType::Market) {
@@ -40,7 +42,7 @@ std::vector<Trade> lob::LOB::add(Order order) {
 	return trades;
 }
 
-std::vector<Trade> lob::LOB::match_order(Order& taker_order) {
+std::vector<Trade> LOB::match_order(Order& taker_order) {
     std::vector<Trade> trades;
 
     if (taker_order.side == Side::Buy) {
@@ -111,7 +113,7 @@ std::vector<Trade> lob::LOB::match_order(Order& taker_order) {
     return trades;
 }
 
-bool lob::LOB::cancel(const CancelRequest& request) {
+bool LOB::cancel(const CancelRequest& request) {
     auto it = m_orderID_map.find(request.id);
 
     if (it == m_orderID_map.end()) { return false; }
