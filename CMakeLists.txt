@@ -18,9 +18,10 @@ FetchContent_MakeAvailable(googletest)
 
 FetchContent_Declare(
   benchmark
-  URL https://github.com/google/benchmark/archive/v1.8.3.tar.gz
+  URL https://github.com/google/benchmark/archive/v1.9.1.tar.gz
 )
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(HAVE_STD_REGEX ON CACHE BOOL "Bypass regex check" FORCE)
 FetchContent_MakeAvailable(benchmark)
 
 add_library(lob_core src/lob.cpp)
@@ -33,7 +34,7 @@ target_compile_options(lob_core PRIVATE
   $<$<CONFIG:Debug>:$<$<CXX_COMPILER_ID:GNU,Clang>:-O0 -g>>
 )
 
-add_executable(lob_tests tests/test_lob.cpp)
+add_executable(lob_tests tests/tests_lob.cpp)
 target_link_libraries(lob_tests PRIVATE lob_core gtest_main)
 
 include(GoogleTest)
