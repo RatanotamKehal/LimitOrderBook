@@ -2,6 +2,12 @@
 #include <chrono>
 #include <cassert>
 
+bool lob::LOB::has_order(OrderID id) const {
+    auto it = m_orderID_map.find(id);
+
+    if (it == m_orderID_map.end()) { return false; }
+    else { return true; }
+}
 std::vector<Trade> lob::LOB::add(Order order) {
 	std::vector<Trade> trades{};
 
