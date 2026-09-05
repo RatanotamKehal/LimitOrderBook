@@ -9,6 +9,7 @@ private:
 	std::vector<PriceLevel> sell_orders;
 	std::vector<Order> mem_pool;
 	std::vector<OrderIndex> order_map;
+	Order* free_list_head;
 
 public:
 	void add(Order& order);

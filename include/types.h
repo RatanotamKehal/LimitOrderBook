@@ -7,13 +7,13 @@ using OrderIndex = uint32_t;
 constexpr uint64_t PRICE_MULTIPLIER = 10000; // 10,000
 
 enum class Side : uint8_t {
-	Buy,
-	Sell,
+	Buy = 0,
+	Sell = 1,
 };
 
 enum class OrderType : uint8_t {
-	Limit,
-	Market,
+	Limit = 0,
+	Market = 1,
 };
 
 struct Order {
