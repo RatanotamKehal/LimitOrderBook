@@ -75,5 +75,11 @@ static void BM_OrderBook(benchmark::State& state) {
 	}
 }
 
-BENCHMARK(BM_OrderBook)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_OrderBook)
+->Unit(benchmark::kMillisecond)
+->Repetitions(10) // 10 is a very solid baseline for local testing
+->ComputeStatistics("max", [](const std::vector<double>& v) {
+	return *std::max_element(v.begin(), v.end());
+	});
+
 BENCHMARK_MAIN();
