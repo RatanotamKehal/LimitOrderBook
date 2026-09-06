@@ -29,18 +29,31 @@ void LOB::add(Order& order) {
 		if (order.side == Side::Buy) {
 			OrderIndex& index = sell_orders[best_ask * PRICE_MULTIPLIER].head;
 			Order& match = mem_pool[index];
+			while (order.quantity > 0) {
+				Quantity min_quantity = std::min(match.quantity, order.quantity);
+				match.quantity -= min_quantity;
+				order.quantity -= min_quantity;
 
-			Quantity min_quantity = std::min(match.quantity, order.quantity);
-			match.quantity -= min_quantity;
-			order.quantity -= order.quantity;
-			
-			if (match.quantity == 0) {
-				index = match.next;
+				if (match.quantity == 0) {
+					order_map[index] = INVALID_INDEX;
+					index = match.next;
+				}
 			}
 		}
-		
+		else {
+			OrderIndex& index = buy_orders[best_bid * PRICE_MULTIPLIER].head;
+			Order& match = mem_pool[index];
+			while (order.quantity > 0) {
+				Quantity min_quantity = std::min(match.quantity, order.quantity);
+				match.quantity -= min_quantity;
+				order.quantity -= min_quantity;
 
-
+				if (match.quantity == 0) {
+					order_map[index] = INVALID_INDEX;
+					index = match.next;
+				}
+			}
+		}
 		return;
 	}
 	
