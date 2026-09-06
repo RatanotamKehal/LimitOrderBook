@@ -1,10 +1,12 @@
 #include "lob.h"
-#include <cmath>
 #include <limits>
 
 constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
-constexpr uint64_t MEM_POOL_SIZE{ 1000000 };
-const uint64_t ORDER_POOL_SIZE{ static_cast<uint64_t>(std::pow(2, std::log2(MEM_POOL_SIZE))) };
+constexpr Price MAX_PRICE = std::numeric_limits<Price>::max();
+constexpr Price MIN_PRICE = 0;
+
+constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
+constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
 
 LOB::LOB() {
 	buy_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
@@ -27,34 +29,63 @@ LOB::LOB() {
 void LOB::add(Order& order) {
 	if (order.type == OrderType::Market) {
 		if (order.side == Side::Buy) {
-			OrderIndex& index = sell_orders[best_ask * PRICE_MULTIPLIER].head;
-			Order& match = mem_pool[index];
 			while (order.quantity > 0) {
+				if (best_ask == MAX_PRICE) {
+					break;
+				}
+
+				OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+				while (index == INVALID_INDEX) {
+					best_ask++;
+					index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+				}
+				Order& match = mem_pool[index];
+
 				Quantity min_quantity = std::min(match.quantity, order.quantity);
 				match.quantity -= min_quantity;
 				order.quantity -= min_quantity;
 
 				if (match.quantity == 0) {
-					order_map[index] = INVALID_INDEX;
-					index = match.next;
+					order_map[match.id] = INVALID_INDEX;
+
+					sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
+
+					OrderIndex prev_free = free_list_head;
+					free_list_head = index;
+					mem_pool[free_list_head].next = prev_free;
+
 				}
 			}
 		}
 		else {
-			OrderIndex& index = buy_orders[best_bid * PRICE_MULTIPLIER].head;
-			Order& match = mem_pool[index];
 			while (order.quantity > 0) {
+				if (best_bid == MIN_PRICE) {
+					break;
+				}
+
+				OrderIndex index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+				while (index == INVALID_INDEX) {
+					best_bid--;
+					index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+				}
+				Order& match = mem_pool[index];
+
 				Quantity min_quantity = std::min(match.quantity, order.quantity);
 				match.quantity -= min_quantity;
 				order.quantity -= min_quantity;
 
 				if (match.quantity == 0) {
-					order_map[index] = INVALID_INDEX;
-					index = match.next;
+					order_map[match.id] = INVALID_INDEX;
+
+					buy_orders[best_bid % ORDER_POOL_SIZE].head = match.next;
+
+					OrderIndex prev_free = free_list_head;
+					free_list_head = index;
+					mem_pool[free_list_head].next = prev_free;
+					
 				}
 			}
 		}
-		return;
 	}
 	
 	if (order.side == Side::Buy) {
