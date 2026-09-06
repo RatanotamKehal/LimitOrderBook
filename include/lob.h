@@ -18,8 +18,10 @@ private:
 public:
 	LOB();
 
-	void add(Order& order);
+	void marketAdd(Order& order);
+	void limitAdd(Order& order);
 
+	void add(Order& order);
 	void cancel(uint64_t order_id);
 };
 

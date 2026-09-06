@@ -25,82 +25,84 @@ LOB::LOB() {
 	best_ask = std::numeric_limits<Price>::max();
 }
 
+void LOB::marketAdd(Order& order) {
+	if (order.side == Side::Buy) {
+		while (order.quantity > 0) {
 
-void LOB::add(Order& order) {
-	if (order.type == OrderType::Market) {
-		if (order.side == Side::Buy) {
-			while (order.quantity > 0) {
-
-				OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
-				while (index == INVALID_INDEX) {
-					if (best_ask == MAX_PRICE) {
-						break;
-					}
-
-					best_ask++;
-					index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+			OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+			while (index == INVALID_INDEX) {
+				if (best_ask == MAX_PRICE) {
+					break;
 				}
-				if (index == INVALID_INDEX) { break; }
 
-				Order& match = mem_pool[index];
-
-				Quantity min_quantity = std::min(match.quantity, order.quantity);
-				match.quantity -= min_quantity;
-				order.quantity -= min_quantity;
-
-				if (match.quantity == 0) {
-					order_map[match.id] = INVALID_INDEX;
-
-					sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
-					if (match.next == INVALID_INDEX) {
-						sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
-					}
-
-					OrderIndex prev_free = free_list_head;
-					free_list_head = index;
-					mem_pool[free_list_head].next = prev_free;
-
-				}
+				best_ask++;
+				index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
 			}
-		}
-		else {
-			while (order.quantity > 0) {
+			if (index == INVALID_INDEX) { break; }
 
-				OrderIndex index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
-				while (index == INVALID_INDEX) {
-					if (best_bid == MIN_PRICE) {
-						break;
-					}
+			Order& match = mem_pool[index];
 
-					best_bid--;
-					index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+			Quantity min_quantity = std::min(match.quantity, order.quantity);
+			match.quantity -= min_quantity;
+			order.quantity -= min_quantity;
+
+			if (match.quantity == 0) {
+				order_map[match.id] = INVALID_INDEX;
+
+				sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
+				if (match.next == INVALID_INDEX) {
+					sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
 				}
-				if (index == INVALID_INDEX) { break; }
 
-				Order& match = mem_pool[index];
+				OrderIndex prev_free = free_list_head;
+				free_list_head = index;
+				mem_pool[free_list_head].next = prev_free;
 
-				Quantity min_quantity = std::min(match.quantity, order.quantity);
-				match.quantity -= min_quantity;
-				order.quantity -= min_quantity;
-
-				if (match.quantity == 0) {
-					order_map[match.id] = INVALID_INDEX;
-
-					buy_orders[best_bid % ORDER_POOL_SIZE].head = match.next;
-					if (match.next == INVALID_INDEX) {
-						buy_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
-					}
-
-					OrderIndex prev_free = free_list_head;
-					free_list_head = index;
-					mem_pool[free_list_head].next = prev_free;
-					
-				}
 			}
 		}
 	}
-	
-	if (order.side == Side::Buy) {
+	else {
+		while (order.quantity > 0) {
+
+			OrderIndex index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+			while (index == INVALID_INDEX) {
+				if (best_bid == MIN_PRICE) {
+					break;
+				}
+
+				best_bid--;
+				index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+			}
+			if (index == INVALID_INDEX) { break; }
+
+			Order& match = mem_pool[index];
+
+			Quantity min_quantity = std::min(match.quantity, order.quantity);
+			match.quantity -= min_quantity;
+			order.quantity -= min_quantity;
+
+			if (match.quantity == 0) {
+				order_map[match.id] = INVALID_INDEX;
+
+				buy_orders[best_bid % ORDER_POOL_SIZE].head = match.next;
+				if (match.next == INVALID_INDEX) {
+					buy_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+				}
+
+				OrderIndex prev_free = free_list_head;
+				free_list_head = index;
+				mem_pool[free_list_head].next = prev_free;
+
+			}
+		}
+	}
+}
+
+void LOB::add(Order& order) {
+	if (order.type == OrderType::Market) {
+		marketAdd(order);
+	}
+	else {
 
 	}
 }
