@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 using Price = uint64_t;
 using Quantity = uint64_t;
@@ -17,16 +18,16 @@ enum class OrderType : uint8_t {
 };
 
 struct Order {
-	uint64_t order_id;
+	uint64_t id;
 
 	Price price;
 	Quantity quantity;
-	uint64_t arrival_time; // timestamp in ns
+	uint64_t time; // timestamp in ns
 	
 	OrderIndex next;
 	OrderIndex prev;
 
-	OrderType order_type;
+	OrderType type;
 	Side side;
 };
 
