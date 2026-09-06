@@ -104,23 +104,32 @@ void LOB::add(Order& order) {
 	}
 	else {
 		if (order.side == Side::Buy) {
-
 			if (order.price < best_ask) {
-				PriceLevel buy_level = buy_orders[order.price];
+				OrderIndex allocated_index = free_list_head;
+				OrderIndex next_free = mem_pool[free_list_head].next;
 
+				order_map[order.id] = allocated_index;
+
+				if (order.price > best_bid) {
+					best_bid = order.price;
+				}
+
+				PriceLevel& buy_level = buy_orders[order.price % ORDER_POOL_SIZE];
+
+			
 				if (buy_level.head == INVALID_INDEX) {
-					buy_level.head = free_list_head;
-					buy_level.tail = free_list_head;
+					buy_level.head = allocated_index;
+					buy_level.tail = allocated_index;
 					order.prev = INVALID_INDEX;
 				}
 				else {
-					mem_pool[buy_level.tail].next = free_list_head;
+					mem_pool[buy_level.tail].next = allocated_index;
 					order.prev = buy_level.tail;
+					buy_level.tail = allocated_index;
 				}
 
 				order.next = INVALID_INDEX;
-				OrderIndex next_free = mem_pool[free_list_head].next;
-				mem_pool[free_list_head] = order;
+				mem_pool[allocated_index] = order;
 				free_list_head = next_free;
 			}
 		}
