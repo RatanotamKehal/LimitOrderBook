@@ -9,9 +9,15 @@ private:
 	std::vector<PriceLevel> sell_orders;
 	std::vector<Order> mem_pool;
 	std::vector<OrderIndex> order_map;
-	Order* free_list_head;
+
+	OrderIndex free_list_head;
+
+	Price best_bid;
+	Price best_ask;
 
 public:
+	LOB();
+
 	void add(Order& order);
 
 	void cancel(uint64_t order_id);
