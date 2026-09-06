@@ -134,6 +134,18 @@ void LOB::add(Order& order) {
 	}
 }
 
+void LOB::add(Order& order) {
+	if (order.type == OrderType::Market) {
+		marketAdd(order);
+	}
+	else if (order.type == OrderType::Limit && order.side == Side::Buy) {
+		limitAddBuy(order);
+	}
+	else if (order.type == OrderType::Limit && order.side == Side::Sell) {
+		limitAddSell(order);
+	}
+}
+
 void LOB::cancel(uint64_t order_id) {
 
 }

@@ -19,7 +19,8 @@ public:
 	LOB();
 
 	void marketAdd(Order& order);
-	void limitAdd(Order& order);
+	void limitAddBuy(Order& order);
+	void limitAddSell(Order& order);
 
 	void add(Order& order);
 	void cancel(uint64_t order_id);
