@@ -88,6 +88,48 @@ Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 	return quantity;
 }
 
+void LOB::addRemainingToList(Order& order) {
+	if (order.quantity > 0 && order.type == OrderType::Limit) {
+		OrderIndex allocated_index = free_list_head;
+		free_list_head = mem_pool[free_list_head].next;
+
+		order_map[order.id] = allocated_index;
+
+		std::vector<PriceLevel>& orders = buy_orders;
+		if (order.side == Side::Sell) {
+			orders = sell_orders;
+		}
+
+		if (order.side == Side::Buy) {
+			if (order.price > best_bid) {
+				best_bid = order.price;
+			}
+		}
+		else {
+			if (order.price < best_ask) {
+				best_ask = order.price;
+			}
+		}
+
+		PriceLevel& level = orders[order.price % ORDER_POOL_SIZE];
+
+		if (level.head == INVALID_INDEX) {
+			level.head = allocated_index;
+			level.tail = allocated_index;
+			order.prev = INVALID_INDEX;
+		}
+		else {
+			mem_pool[level.tail].next = allocated_index;
+			order.prev = level.tail;
+			level.tail = allocated_index;
+		}
+
+		order.next = INVALID_INDEX;
+		mem_pool[allocated_index] = order;
+	}
+}
+
+
 void LOB::add(Order& order) {
 	if (order.side == Side::Buy) {
 		if (order.type == OrderType::Market) {
@@ -95,31 +137,6 @@ void LOB::add(Order& order) {
 		}
 		else {
 			order.quantity = matchAgainstAsks(order.quantity, order.price);
-		}
-
-		if (order.quantity > 0 && order.type == OrderType::Limit) {
-			OrderIndex allocated_index = free_list_head;
-			free_list_head = mem_pool[free_list_head].next;
-
-			order_map[order.id] = allocated_index;
-			if (order.price > best_bid) {
-				best_bid = order.price;
-			}
-
-			PriceLevel& buy_level = buy_orders[order.price % ORDER_POOL_SIZE];
-			if (buy_level.head == INVALID_INDEX) {
-				buy_level.head = allocated_index;
-				buy_level.tail = allocated_index;
-				order.prev = INVALID_INDEX;
-			}
-			else {
-				mem_pool[buy_level.tail].next = allocated_index;
-				order.prev = buy_level.tail;
-				buy_level.tail = allocated_index;
-			}
-
-			order.next = INVALID_INDEX;
-			mem_pool[allocated_index] = order;
 		}
 	}
 	else {
@@ -129,33 +146,11 @@ void LOB::add(Order& order) {
 		else {
 			order.quantity = matchAgainstBids(order.quantity, order.price);
 		}
-
-		if (order.quantity > 0 && order.type == OrderType::Limit) {
-			OrderIndex allocated_index = free_list_head;
-			free_list_head = mem_pool[free_list_head].next;
-
-			order_map[order.id] = allocated_index;
-			if (order.price < best_ask) {
-				best_ask = order.price;
-			}
-
-			PriceLevel& sell_level = sell_orders[order.price % ORDER_POOL_SIZE];
-			if (sell_level.head == INVALID_INDEX) {
-				sell_level.head = allocated_index;
-				sell_level.tail = allocated_index;
-				order.prev = INVALID_INDEX;
-			}
-			else {
-				mem_pool[sell_level.tail].next = allocated_index;
-				order.prev = sell_level.tail;
-				sell_level.tail = allocated_index;
-			}
-
-			order.next = INVALID_INDEX;
-			mem_pool[allocated_index] = order;
-		}
 	}
+
+	addRemainingToList(order);
 }
+
 
 void LOB::cancel(uint64_t order_id) {
 

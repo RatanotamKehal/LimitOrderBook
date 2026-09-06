@@ -17,10 +17,7 @@ private:
 
 	Quantity matchAgainstAsks(Quantity quantity, Price limit_price);
 	Quantity matchAgainstBids(Quantity quantity, Price limit_price);
-
-	void marketAdd(Order& order);
-	void limitAddBuy(Order& order);
-	void limitAddSell(Order& order);
+	void addRemainingToList(Order& order);
 
 public:
 	LOB();
