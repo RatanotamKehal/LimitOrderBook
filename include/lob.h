@@ -15,12 +15,15 @@ private:
 	Price best_bid;
 	Price best_ask;
 
-public:
-	LOB();
+	Quantity matchAgainstAsks(Quantity quantity, Price limit_price);
+	Quantity matchAgainstBids(Quantity quantity, Price limit_price);
 
 	void marketAdd(Order& order);
 	void limitAddBuy(Order& order);
 	void limitAddSell(Order& order);
+
+public:
+	LOB();
 
 	void add(Order& order);
 	void cancel(uint64_t order_id);

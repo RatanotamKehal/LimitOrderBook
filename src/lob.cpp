@@ -1,5 +1,6 @@
 #include "lob.h"
 #include <limits>
+#include <algorithm>
 
 constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
 constexpr Price MAX_PRICE = std::numeric_limits<Price>::max();
@@ -23,6 +24,37 @@ LOB::LOB() {
 
 	best_bid = 0;
 	best_ask = std::numeric_limits<Price>::max();
+}
+
+Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
+	while (quantity > 0 && limit_price >= best_ask) {
+		OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+
+		while (index == INVALID_INDEX) {
+			if (best_ask == MAX_PRICE) return quantity;
+			best_ask++;
+			index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+		}
+
+		Order& match = mem_pool[index];
+		Quantity min_quantity = std::min(match.quantity, quantity);
+		match.quantity -= min_quantity;
+		quantity -= min_quantity;
+
+		if (match.quantity == 0) {
+			order_map[match.id] = INVALID_INDEX;
+
+			sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
+			if (match.next == INVALID_INDEX) {
+				sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+			}
+
+			OrderIndex prev_free = free_list_head;
+			free_list_head = index;
+			mem_pool[free_list_head].next = prev_free;
+		}
+	}
+	return quantity;
 }
 
 void LOB::marketAdd(Order& order) {
