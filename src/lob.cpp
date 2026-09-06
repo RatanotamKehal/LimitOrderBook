@@ -130,30 +130,32 @@ void LOB::limitAddBuy(Order& order) {
 		else {
 			while (order.quantity > 0 && order.price >= best_ask) {
 				PriceLevel sell_level = sell_orders[best_ask % ORDER_POOL_SIZE];
+				if (sell_level.head == INVALID_INDEX) { break; }
 
-				Order& match = mem_pool[sell_level.head];
+				OrderIndex matched_index = sell_level.head;
+				Order& matched_order = mem_pool[matched_index];
 
-				Quantity quantity = std::min(match.quantity, order.quantity);
-				match.quantity -= quantity;
+				Quantity quantity = std::min(matched_order.quantity, order.quantity);
+				matched_order.quantity -= quantity;
 				order.quantity -= quantity;
 
-				if (match.quantity == 0) {
-					order_map[match.id] = INVALID_INDEX;
+				if (matched_order.quantity == 0) {
+					order_map[matched_order.id] = INVALID_INDEX;
 
-					sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
-					if (match.next == INVALID_INDEX) {
+					sell_orders[best_ask % ORDER_POOL_SIZE].head = matched_order.next;
+					if (matched_order.next == INVALID_INDEX) {
 						sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
 						while (sell_orders[best_ask % ORDER_POOL_SIZE].head == INVALID_INDEX) {
 							if (best_ask == MAX_PRICE) {
-								return;
+								break;
 							}
-
 							best_ask++;
 						}
 					}
 
 					OrderIndex prev_free = free_list_head;
-					free_list_head = sell_level.head;
+
+					free_list_head = matched_index;
 					mem_pool[free_list_head].next = prev_free;
 				}
 			}
@@ -205,10 +207,10 @@ void LOB::limitAddSell(Order& order) {
 
 					buy_orders[best_bid % ORDER_POOL_SIZE].head = match.next;
 					if (match.next == INVALID_INDEX) {
-						sell_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
-						while (sell_orders[best_bid % ORDER_POOL_SIZE].head == INVALID_INDEX) {
+						buy_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+						while (buy_orders[best_bid % ORDER_POOL_SIZE].head == INVALID_INDEX) {
 							if (best_bid == MIN_PRICE) {
-								return;
+								break;
 							}
 
 							best_bid--;
