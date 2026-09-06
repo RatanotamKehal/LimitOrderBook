@@ -103,7 +103,27 @@ void LOB::add(Order& order) {
 		marketAdd(order);
 	}
 	else {
+		if (order.side == Side::Buy) {
 
+			if (order.price < best_ask) {
+				PriceLevel buy_level = buy_orders[order.price];
+
+				if (buy_level.head == INVALID_INDEX) {
+					buy_level.head = free_list_head;
+					buy_level.tail = free_list_head;
+					order.prev = INVALID_INDEX;
+				}
+				else {
+					mem_pool[buy_level.tail].next = free_list_head;
+					order.prev = buy_level.tail;
+				}
+
+				order.next = INVALID_INDEX;
+				OrderIndex next_free = mem_pool[free_list_head].next;
+				mem_pool[free_list_head] = order;
+				free_list_head = next_free;
+			}
+		}
 	}
 }
 
