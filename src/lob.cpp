@@ -95,11 +95,6 @@ void LOB::addRemainingToList(Order& order) {
 
 		order_map[order.id] = allocated_index;
 
-		std::vector<PriceLevel>& orders = buy_orders;
-		if (order.side == Side::Sell) {
-			orders = sell_orders;
-		}
-
 		if (order.side == Side::Buy) {
 			if (order.price > best_bid) {
 				best_bid = order.price;
@@ -111,6 +106,7 @@ void LOB::addRemainingToList(Order& order) {
 			}
 		}
 
+		std::vector<PriceLevel>& orders = (order.side == Side::Buy) ? buy_orders : sell_orders;
 		PriceLevel& level = orders[order.price % ORDER_POOL_SIZE];
 
 		if (level.head == INVALID_INDEX) {
@@ -132,24 +128,14 @@ void LOB::addRemainingToList(Order& order) {
 
 void LOB::add(Order& order) {
 	if (order.side == Side::Buy) {
-		if (order.type == OrderType::Market) {
-			order.quantity = matchAgainstAsks(order.quantity, MAX_PRICE);
-		}
-		else {
-			order.quantity = matchAgainstAsks(order.quantity, order.price);
-		}
+		order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
 	}
 	else {
-		if (order.type == OrderType::Market) {
-			order.quantity = matchAgainstBids(order.quantity, MIN_PRICE);
-		}
-		else {
-			order.quantity = matchAgainstBids(order.quantity, order.price);
-		}
+		order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
 	}
-
 	addRemainingToList(order);
 }
+
 
 
 void LOB::cancel(uint64_t order_id) {
