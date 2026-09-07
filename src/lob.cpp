@@ -1,13 +1,18 @@
 #include "lob.h"
 #include <limits>
 #include <algorithm>
+#include <cmath>
 
 constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
 constexpr Price MAX_PRICE = std::numeric_limits<Price>::max();
 constexpr Price MIN_PRICE = 0;
 
 constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
-constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
+constexpr uint64_t ORDER_POOL_SIZE{ 1 << 14 }; // 16,384
+constexpr uint64_t SPARSE_THRESHOLD{ 1 << 13 }; // 8,192
+
+Price median_price;
+Quantity total_orders;
 
 LOB::LOB() {
 	buy_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
@@ -48,6 +53,9 @@ Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 			if (match.next == INVALID_INDEX) {
 				sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
 			}
+			else {
+				mem_pool[match.next].prev = INVALID_INDEX;
+			}
 
 			OrderIndex prev_free = free_list_head;
 			free_list_head = index;
@@ -79,6 +87,9 @@ Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 			if (match.next == INVALID_INDEX) {
 				buy_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
 			}
+			else {
+				mem_pool[match.next].prev = INVALID_INDEX;
+			}
 
 			OrderIndex prev_free = free_list_head;
 			free_list_head = index;
@@ -90,6 +101,14 @@ Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 
 void LOB::addRemainingToList(Order& order) {
 	if (order.quantity > 0 && order.type == OrderType::Limit) {
+		total_orders++;
+		median_price = ((median_price * total_orders) + order.price) / total_orders;
+
+		if (free_list_head == INVALID_INDEX) {
+			// Log OOM error and reject the order
+			return;
+		}
+
 		OrderIndex allocated_index = free_list_head;
 		free_list_head = mem_pool[free_list_head].next;
 
@@ -127,13 +146,19 @@ void LOB::addRemainingToList(Order& order) {
 
 
 void LOB::add(Order& order) {
-	if (order.side == Side::Buy) {
-		order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
+	Price difference = std::max(order.price, median_price) - std::min(order.price, median_price);
+	if (difference < SPARSE_THRESHOLD) {
+		if (order.side == Side::Buy) {
+			order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
+		}
+		else {
+			order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
+		}
+		addRemainingToList(order);
 	}
 	else {
-		order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
+
 	}
-	addRemainingToList(order);
 }
 
 
