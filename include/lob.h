@@ -14,6 +14,7 @@ private:
 
 	Price best_bid;
 	Price best_ask;
+	Price median_price;
 
 	Quantity matchAgainstAsks(Quantity quantity, Price limit_price);
 	Quantity matchAgainstBids(Quantity quantity, Price limit_price);

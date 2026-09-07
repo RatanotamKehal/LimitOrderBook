@@ -11,9 +11,6 @@ constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
 constexpr uint64_t ORDER_POOL_SIZE{ 1 << 14 }; // 16,384
 constexpr uint64_t SPARSE_THRESHOLD{ 1 << 13 }; // 8,192
 
-Price median_price;
-Quantity total_orders;
-
 LOB::LOB() {
 	buy_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
 	sell_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
@@ -101,8 +98,6 @@ Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 
 void LOB::addRemainingToList(Order& order) {
 	if (order.quantity > 0 && order.type == OrderType::Limit) {
-		total_orders++;
-		median_price = ((median_price * total_orders) + order.price) / total_orders;
 
 		if (free_list_head == INVALID_INDEX) {
 			// Log OOM error and reject the order
@@ -146,7 +141,9 @@ void LOB::addRemainingToList(Order& order) {
 
 
 void LOB::add(Order& order) {
+	median_price = (best_bid + best_ask) / 2;
 	Price difference = std::max(order.price, median_price) - std::min(order.price, median_price);
+
 	if (difference < SPARSE_THRESHOLD) {
 		if (order.side == Side::Buy) {
 			order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
