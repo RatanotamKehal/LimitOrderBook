@@ -1,19 +1,19 @@
 #include "lob.h"
 #include <limits>
 #include <algorithm>
-#include <cmath>
 
 constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
 constexpr Price MAX_PRICE = std::numeric_limits<Price>::max();
 constexpr Price MIN_PRICE = 0;
 
 constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
-constexpr uint64_t ORDER_POOL_SIZE{ 1 << 14 }; // 16,384
-constexpr uint64_t SPARSE_THRESHOLD{ 1 << 13 }; // 8,192
+constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
 
 LOB::LOB() {
 	buy_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
 	sell_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
+	buy_bitvector.resize(ORDER_POOL_SIZE >> 6, 0);
+	sell_bitvector.resize(ORDER_POOL_SIZE >> 6, 0);
 	mem_pool.resize(MEM_POOL_SIZE);
 	order_map.resize(MEM_POOL_SIZE, INVALID_INDEX);
 
@@ -28,7 +28,32 @@ LOB::LOB() {
 	best_ask = std::numeric_limits<Price>::max();
 }
 
-Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
+
+inline void LOB::setSellBit(Price price) {
+	uint64_t block_index = price >> 6;
+	uint64_t bit_position = price & 63;
+	sell_bitvector[block_index] |= (1ULL << bit_position);
+}
+
+inline void LOB::setBuyBit(Price price) {
+	uint64_t bit_index = price >> 6;
+	uint64_t bit_location = price & 63;
+	buy_bitvector[bit_index] |= (1ULL << bit_location);
+}
+
+inline void LOB::clearSellBit(Price price) {
+	uint64_t bit_index = price >> 6;
+	uint64_t bit_location = price & 63;
+	sell_bitvector[bit_index] &= ~(1ULL << bit_location);
+}
+
+inline void LOB::clearBuyBit(Price price) {
+	uint64_t bit_index = price >> 6;
+	uint64_t bit_location = price & 63;
+	buy_bitvector[bit_index] &= ~(1ULL << bit_location);
+}
+
+inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 	while (quantity > 0 && limit_price >= best_ask) {
 		OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
 
@@ -49,6 +74,7 @@ Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 			sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
 			if (match.next == INVALID_INDEX) {
 				sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+				clearSellBit(best_ask);
 			}
 			else {
 				mem_pool[match.next].prev = INVALID_INDEX;
@@ -62,7 +88,7 @@ Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 	return quantity;
 }
 
-Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
+inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 	while (quantity > 0 && limit_price <= best_bid) {
 		OrderIndex index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
 
@@ -83,6 +109,7 @@ Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 			buy_orders[best_bid % ORDER_POOL_SIZE].head = match.next;
 			if (match.next == INVALID_INDEX) {
 				buy_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+				clearBuyBit(best_bid);
 			}
 			else {
 				mem_pool[match.next].prev = INVALID_INDEX;
@@ -96,7 +123,7 @@ Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 	return quantity;
 }
 
-void LOB::addRemainingToList(Order& order) {
+inline void LOB::addRemainingToList(Order& order) {
 	if (order.quantity > 0 && order.type == OrderType::Limit) {
 
 		if (free_list_head == INVALID_INDEX) {
@@ -124,6 +151,8 @@ void LOB::addRemainingToList(Order& order) {
 		PriceLevel& level = orders[order.price % ORDER_POOL_SIZE];
 
 		if (level.head == INVALID_INDEX) {
+			(order.side == Side::Buy) ? setBuyBit(order.price) : setSellBit(order.price);
+
 			level.head = allocated_index;
 			level.tail = allocated_index;
 			order.prev = INVALID_INDEX;
@@ -141,21 +170,14 @@ void LOB::addRemainingToList(Order& order) {
 
 
 void LOB::add(Order& order) {
-	median_price = (best_bid + best_ask) / 2;
-	Price difference = std::max(order.price, median_price) - std::min(order.price, median_price);
 
-	if (difference < SPARSE_THRESHOLD) {
-		if (order.side == Side::Buy) {
-			order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
-		}
-		else {
-			order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
-		}
-		addRemainingToList(order);
+	if (order.side == Side::Buy) {
+		order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
 	}
 	else {
-
+		order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
 	}
+	addRemainingToList(order);
 }
 
 

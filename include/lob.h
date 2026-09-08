@@ -7,6 +7,9 @@ class LOB {
 private:
 	std::vector<PriceLevel> buy_orders;
 	std::vector<PriceLevel> sell_orders;
+	std::vector<uint64_t> buy_bitvector;
+	std::vector<uint64_t> sell_bitvector;
+
 	std::vector<Order> mem_pool;
 	std::vector<OrderIndex> order_map;
 
@@ -14,7 +17,11 @@ private:
 
 	Price best_bid;
 	Price best_ask;
-	Price median_price;
+
+	void setSellBit(Price price);
+	void setBuyBit(Price price);
+	void clearSellBit(Price price);
+	void clearBuyBit(Price price);
 
 	Quantity matchAgainstAsks(Quantity quantity, Price limit_price);
 	Quantity matchAgainstBids(Quantity quantity, Price limit_price);
