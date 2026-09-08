@@ -3,6 +3,18 @@
 #include <unordered_map>
 #include "types.h"
 
+constexpr uint64_t PRICE_MULTIPLIER = 10000; // 10,000
+
+constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
+constexpr uint64_t INVALID_ORDER_ID = std::numeric_limits<uint64_t>::max();
+
+constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
+constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
+
+constexpr Price MAX_PRICE = ORDER_POOL_SIZE - 1;
+constexpr Price MIN_PRICE = 0;
+
+
 class LOB {
 private:
 	std::vector<PriceLevel> buy_orders;
@@ -10,9 +22,7 @@ private:
 	std::vector<uint64_t> buy_bitvector;
 	std::vector<uint64_t> sell_bitvector;
 
-	std::vector<Order> mem_pool;
-	std::vector<OrderIndex> order_map;
-
+	std::vector<OrderSlot> mem_pool;
 	OrderIndex free_list_head;
 
 	Price best_bid;
@@ -28,12 +38,12 @@ private:
 
 	Quantity matchAgainstAsks(Quantity quantity, Price limit_price);
 	Quantity matchAgainstBids(Quantity quantity, Price limit_price);
-	void addRemainingToList(Order& order);
+	AddResult addRemainingToList(Order& order);
 
 public:
 	LOB();
 
-	Quantity add(Order& order);
+	AddResult add(Order& order);
 	bool cancel(uint64_t order_id);
 };
 

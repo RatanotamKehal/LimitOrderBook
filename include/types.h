@@ -1,11 +1,9 @@
 #pragma once
 #include <cstdint>
 
-using Price = uint64_t;
-using Quantity = uint64_t;
+using Price = uint32_t;
+using Quantity = uint32_t; // For larger quantities, maybe implement Lot Sizes ex. 1 Quantity = 10,000 Shares
 using OrderIndex = uint32_t;
-
-constexpr uint64_t PRICE_MULTIPLIER = 10000; // 10,000
 
 enum class Side : uint8_t {
 	Buy = 0,
@@ -18,11 +16,10 @@ enum class OrderType : uint8_t {
 };
 
 struct Order {
-	uint64_t id;
+	uint64_t time; // timestamp in ns
 
 	Price price;
 	Quantity quantity;
-	uint64_t time; // timestamp in ns
 	
 	OrderIndex next;
 	OrderIndex prev;
@@ -34,4 +31,14 @@ struct Order {
 struct PriceLevel {
 	OrderIndex head;
 	OrderIndex tail;
+};
+
+struct OrderSlot {
+	Order order;
+	uint32_t generation;
+};
+
+struct AddResult {
+	Quantity remaining_quantity;
+	uint64_t order_id;
 };
