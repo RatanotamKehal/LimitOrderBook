@@ -18,6 +18,9 @@ private:
 	Price best_bid;
 	Price best_ask;
 
+	bool has_bids;
+	bool has_asks;
+
 	void setSellBit(Price price);
 	void setBuyBit(Price price);
 	void clearSellBit(Price price);
@@ -30,7 +33,7 @@ private:
 public:
 	LOB();
 
-	void add(Order& order);
-	void cancel(uint64_t order_id);
+	Quantity add(Order& order);
+	bool cancel(uint64_t order_id);
 };
 

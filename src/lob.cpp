@@ -4,11 +4,12 @@
 #include <bit>
 
 constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
-constexpr Price MAX_PRICE = std::numeric_limits<Price>::max();
-constexpr Price MIN_PRICE = 0;
 
 constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
 constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
+
+constexpr Price MAX_PRICE = ORDER_POOL_SIZE - 1;
+constexpr Price MIN_PRICE = 0;
 
 LOB::LOB() {
 	buy_orders.resize(ORDER_POOL_SIZE, { INVALID_INDEX, INVALID_INDEX });
@@ -25,8 +26,11 @@ LOB::LOB() {
 	}
 	mem_pool[MEM_POOL_SIZE - 1].next = INVALID_INDEX;
 
-	best_bid = 0;
-	best_ask = std::numeric_limits<Price>::max();
+	best_bid = MIN_PRICE;
+	best_ask = MAX_PRICE;
+
+	has_bids = false;
+	has_asks = false;
 }
 
 
@@ -55,8 +59,8 @@ inline void LOB::clearBuyBit(Price price) {
 }
 
 inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
-	while (quantity > 0 && limit_price >= best_ask) {
-		OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+	while (quantity > 0 && has_asks && limit_price >= best_ask) {
+		OrderIndex index = sell_orders[best_ask].head;
 	
 		if (index == INVALID_INDEX) {
 			uint64_t block_index = best_ask >> 6;
@@ -67,6 +71,7 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 
 				if (block_index >= sell_bitvector.size()) {
 					best_ask = MAX_PRICE;
+					has_asks = false;
 					return quantity;
 				}
 
@@ -74,7 +79,7 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 			}
 
 			best_ask = (block_index << 6) + std::countr_zero(bit_block);
-			index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+			index = sell_orders[best_ask].head;
 		}
 
 		Order& match = mem_pool[index];
@@ -85,9 +90,9 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 		if (match.quantity == 0) {
 			order_map[match.id] = INVALID_INDEX;
 
-			sell_orders[best_ask % ORDER_POOL_SIZE].head = match.next;
+			sell_orders[best_ask].head = match.next;
 			if (match.next == INVALID_INDEX) {
-				sell_orders[best_ask % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+				sell_orders[best_ask].tail = INVALID_INDEX;
 				clearSellBit(best_ask);
 			}
 			else {
@@ -103,26 +108,25 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 }
 
 inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
-	while (quantity > 0 && limit_price <= best_bid) {
-		OrderIndex index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+	while (quantity > 0 && has_bids && limit_price <= best_bid) {
+		OrderIndex index = buy_orders[best_bid].head;
 
 		if (index == INVALID_INDEX) {
 			uint64_t block_index = best_bid >> 6;
 			uint64_t bit_block = buy_bitvector[block_index];
 
 			while (bit_block == 0) {
-				block_index--;
-
-				if (block_index <= 0) {
+				if (block_index == 0) {
 					best_bid = MIN_PRICE;
+					has_bids = false;
 					return quantity;
 				}
-
+				block_index--;
 				bit_block = buy_bitvector[block_index];
 			}
 
 			best_bid = (block_index << 6) + (63 - std::countl_zero(bit_block));
-			index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
+			index = buy_orders[best_bid].head;
 		}
 
 		Order& match = mem_pool[index];
@@ -133,9 +137,9 @@ inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 		if (match.quantity == 0) {
 			order_map[match.id] = INVALID_INDEX;
 
-			buy_orders[best_bid % ORDER_POOL_SIZE].head = match.next;
+			buy_orders[best_bid].head = match.next;
 			if (match.next == INVALID_INDEX) {
-				buy_orders[best_bid % ORDER_POOL_SIZE].tail = INVALID_INDEX;
+				buy_orders[best_bid].tail = INVALID_INDEX;
 				clearBuyBit(best_bid);
 			}
 			else {
@@ -152,11 +156,6 @@ inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 
 inline void LOB::addRemainingToList(Order& order) {
 	if (order.quantity > 0 && order.type == OrderType::Limit) {
-
-		if (free_list_head == INVALID_INDEX) {
-			// Log OOM error and reject the order
-			return;
-		}
 
 		OrderIndex allocated_index = free_list_head;
 		free_list_head = mem_pool[free_list_head].next;
@@ -175,10 +174,11 @@ inline void LOB::addRemainingToList(Order& order) {
 		}
 
 		std::vector<PriceLevel>& orders = (order.side == Side::Buy) ? buy_orders : sell_orders;
-		PriceLevel& level = orders[order.price % ORDER_POOL_SIZE];
+		PriceLevel& level = orders[order.price];
 
 		if (level.head == INVALID_INDEX) {
 			(order.side == Side::Buy) ? setBuyBit(order.price) : setSellBit(order.price);
+			(order.side == Side::Buy) ? has_bids = true : has_asks = true;
 
 			level.head = allocated_index;
 			level.tail = allocated_index;
@@ -196,19 +196,29 @@ inline void LOB::addRemainingToList(Order& order) {
 }
 
 
-void LOB::add(Order& order) {
-
+Quantity LOB::add(Order& order) {
+	if (order.price > MAX_PRICE) {
+		// Log Price Error and reject the order
+		return order.quantity;
+	}
 	if (order.side == Side::Buy) {
 		order.quantity = matchAgainstAsks(order.quantity, (order.type == OrderType::Market) ? MAX_PRICE : order.price);
 	}
 	else {
 		order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
 	}
+
+	if (free_list_head == INVALID_INDEX) {
+		// Log OOM error and return remaining order that wasn't added
+		return order.quantity;
+	}
+
 	addRemainingToList(order);
+	return 0;
 }
 
 
 
-void LOB::cancel(uint64_t order_id) {
-
+bool LOB::cancel(uint64_t order_id) {
+	
 }
