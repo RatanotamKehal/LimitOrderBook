@@ -208,6 +208,10 @@ Quantity LOB::add(Order& order) {
 		order.quantity = matchAgainstBids(order.quantity, (order.type == OrderType::Market) ? MIN_PRICE : order.price);
 	}
 
+	if (order.quantity == 0 || order.type == OrderType::Market) {
+		return order.quantity;
+	}
+
 	if (free_list_head == INVALID_INDEX) {
 		// Log OOM error and return remaining order that wasn't added
 		return order.quantity;
@@ -220,5 +224,53 @@ Quantity LOB::add(Order& order) {
 
 
 bool LOB::cancel(uint64_t order_id) {
+	if (order_id >= order_map.size()) { return false; }
+
+	OrderIndex index = order_map[order_id];
+	if (index == INVALID_INDEX) { return false; }
 	
+	Order& order = mem_pool[index];
+
+	if (order.next == INVALID_INDEX && order.prev == INVALID_INDEX) {
+		if (order.side == Side::Buy) {
+			clearBuyBit(order.price);
+			buy_orders[order.price].head = INVALID_INDEX;
+			buy_orders[order.price].tail = INVALID_INDEX;
+		}
+		else {
+			clearSellBit(order.price);
+			sell_orders[order.price].head = INVALID_INDEX;
+			sell_orders[order.price].tail = INVALID_INDEX;
+		}
+	}
+	else if (order.next == INVALID_INDEX) {
+		if (order.side == Side::Buy) {
+			buy_orders[order.price].tail = order.prev;
+		}
+		else {
+			sell_orders[order.price].tail = order.prev;
+		}
+		mem_pool[order.prev].next = INVALID_INDEX;
+	}
+	else if (order.prev == INVALID_INDEX) {
+		if (order.side == Side::Buy) {
+			buy_orders[order.price].head = order.next;
+		}
+		else {
+			sell_orders[order.price].head = order.next;
+		}
+		mem_pool[order.next].prev = INVALID_INDEX;
+	}
+	else {
+		mem_pool[order.prev].next = order.next;
+		mem_pool[order.next].prev = order.prev;
+	}
+
+	OrderIndex prev_free = free_list_head;
+	free_list_head = index;
+	order.prev = INVALID_INDEX;
+	order.next = prev_free;
+
+	order_map[order_id] = INVALID_INDEX;
+	return true;
 }
