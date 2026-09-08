@@ -22,7 +22,7 @@ static double p99(const std::vector<double>& v) {
 // Custom Macro to apply Repetitions and Stats universally
 #define HFT_BENCHMARK(func) \
     BENCHMARK(func) \
-    ->Repetitions(10) \
+    ->Repetitions(30) \
     ->ComputeStatistics("median", [](const std::vector<double>& v) { \
         std::vector<double> copy = v; \
         std::sort(copy.begin(), copy.end()); \
