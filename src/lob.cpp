@@ -1,6 +1,7 @@
 #include "lob.h"
 #include <limits>
 #include <algorithm>
+#include <bit>
 
 constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
 constexpr Price MAX_PRICE = std::numeric_limits<Price>::max();
@@ -56,10 +57,23 @@ inline void LOB::clearBuyBit(Price price) {
 inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 	while (quantity > 0 && limit_price >= best_ask) {
 		OrderIndex index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
+	
+		if (index == INVALID_INDEX) {
+			uint64_t block_index = best_ask >> 6;
+			uint64_t bit_block = sell_bitvector[block_index];
 
-		while (index == INVALID_INDEX) {
-			if (best_ask == MAX_PRICE) return quantity;
-			best_ask++;
+			while (bit_block == 0) {
+				block_index++;
+
+				if (block_index >= sell_bitvector.size()) {
+					best_ask = MAX_PRICE;
+					return quantity;
+				}
+
+				bit_block = sell_bitvector[block_index];
+			}
+
+			best_ask = (block_index << 6) + std::countr_zero(bit_block);
 			index = sell_orders[best_ask % ORDER_POOL_SIZE].head;
 		}
 
@@ -92,9 +106,22 @@ inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 	while (quantity > 0 && limit_price <= best_bid) {
 		OrderIndex index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
 
-		while (index == INVALID_INDEX) {
-			if (best_bid == MIN_PRICE) return quantity;
-			best_bid--;
+		if (index == INVALID_INDEX) {
+			uint64_t block_index = best_bid >> 6;
+			uint64_t bit_block = buy_bitvector[block_index];
+
+			while (bit_block == 0) {
+				block_index--;
+
+				if (block_index <= 0) {
+					best_bid = MIN_PRICE;
+					return quantity;
+				}
+
+				bit_block = buy_bitvector[block_index];
+			}
+
+			best_bid = (block_index << 6) + (63 - std::countl_zero(bit_block));
 			index = buy_orders[best_bid % ORDER_POOL_SIZE].head;
 		}
 
