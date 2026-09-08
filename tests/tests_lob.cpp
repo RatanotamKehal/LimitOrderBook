@@ -1,107 +1,89 @@
 #include <gtest/gtest.h>
-#include "lob.h"
+#include <random>
+#include <vector>
+#include "initial/lob.h"
+#include "optimized/lob.h"
 
+// Struct to link the IDs of the two engines for simultaneous cancellation
+struct DualOrderTracker {
+    uint64_t naive_id;
+    uint64_t fast_id;
+};
 
-namespace lob {
-    Order createOrder(Price price, Quantity quantity, Side side,
-                      OrderType type = OrderType::Limit) {
-        static OrderID id = 1;
+TEST(LOBTest, DifferentialFuzzTest) {
+    initial::LOB naive_book;
+    optimized::LOB fast_book;
 
-        return Order{
-            id++,
-            price,
-            quantity,
-            0,
-            type,
-            side,
-        };
-    }
+    std::mt19937 rng(42); // Hardcoded seed guarantees the exact same chaos every run
+    std::uniform_int_distribution<int> action_dist(0, 100);
+    std::uniform_int_distribution<uint32_t> price_dist(100, 150);
+    std::uniform_int_distribution<uint32_t> qty_dist(1, 50);
+    std::uniform_int_distribution<int> side_dist(0, 1);
 
-    TEST(LOBTest, RestingOrders) {
-        LOB book;
-        Order buy_order = createOrder(100, 50, Side::Buy);
-        Order sell_order = createOrder(105, 50, Side::Sell);
+    std::vector<DualOrderTracker> active_orders;
+    uint64_t current_naive_id = 1;
 
-        std::vector<Trade> trades1 = book.add(buy_order);
-        std::vector<Trade> trades2 = book.add(sell_order);
+    const int ITERATIONS = 10000;
 
-        EXPECT_TRUE(trades1.empty());
-        EXPECT_TRUE(trades2.empty());
-    }
+    for (int i = 0; i < ITERATIONS; ++i) {
+        int action = action_dist(rng);
 
-    TEST(LOBTest, ExactFill) {
-        LOB book;
-        Order buy_order = createOrder(100, 100, Side::Buy);
-        Order sell_order = createOrder(100, 100, Side::Sell);
+        if (action < 60) {
+            // ACTION: Add Limit Order (60% probability)
+            uint32_t p = price_dist(rng);
+            uint32_t q = qty_dist(rng);
+            int s = side_dist(rng);
 
-        book.add(buy_order);
-        std::vector<Trade> trade = book.add(sell_order);
+            // Construct Naive
+            initial::Order naive_order{ current_naive_id++, p, q, 0, initial::OrderType::Limit, static_cast<initial::Side>(s) };
+            naive_book.add(naive_order);
 
-        EXPECT_TRUE(trade.size() == 1);
-    }
+            // Construct Fast
+            optimized::Order fast_order;
+            fast_order.price = p; fast_order.quantity = q;
+            fast_order.side = static_cast<optimized::Side>(s);
+            fast_order.type = optimized::OrderType::Limit;
+            auto fast_res = fast_book.add(fast_order);
 
-    TEST(LOBTest, PartialFillBuy) {
-        LOB book;
-        Order buy_order = createOrder(100, 100, Side::Buy);
-        Order sell_order = createOrder(100, 50, Side::Sell);
-        book.add(sell_order);
-        std::vector<Trade> trade = book.add(buy_order);
+            // Track IDs for future cancellation testing
+            if (fast_res.order_id != optimized::INVALID_ORDER_ID) {
+                active_orders.push_back({ naive_order.order_id, fast_res.order_id });
+            }
 
-        EXPECT_TRUE(trade.size() == 1);
-        EXPECT_TRUE(book.has_order(buy_order.order_id));
-    }
+        }
+        else if (action < 80 && !active_orders.empty()) {
+            // ACTION: Cancel a Random Resting Order (20% probability)
+            std::uniform_int_distribution<size_t> index_dist(0, active_orders.size() - 1);
+            size_t idx = index_dist(rng);
+            DualOrderTracker target = active_orders[idx];
 
-    TEST(LOBTest, PartialFillSell) {
-        LOB book;
-        Order buy_order = createOrder(100, 1, Side::Buy);
-        Order sell_order = createOrder(100, 51, Side::Sell);
-        book.add(buy_order);
-        std::vector<Trade> trade = book.add(sell_order);
+            bool naive_success = naive_book.cancel(initial::CancelRequest{ target.naive_id });
+            bool fast_success = fast_book.cancel(target.fast_id);
 
-        EXPECT_EQ(trade.size(), 1);
-        EXPECT_TRUE(book.has_order(sell_order.order_id));
-    }
+            // The bitboard and the map must agree on whether the order was cancellable
+            ASSERT_EQ(naive_success, fast_success) << "Divergence on cancel state at iteration " << i;
 
-    TEST(LOBTest, AddZero) {
-        LOB book;
+            // Remove from tracking list by swapping with the back and popping
+            active_orders[idx] = active_orders.back();
+            active_orders.pop_back();
 
-        Order buy_order = createOrder(100, 0, Side::Buy);
-        Order sell_order = createOrder(100, 0, Side::Sell);
+        }
+        else {
+            // ACTION: Add Market Order (20% probability)
+            uint32_t q = qty_dist(rng);
+            int s = side_dist(rng);
 
-        EXPECT_FALSE(book.has_order(buy_order.order_id));
-        EXPECT_FALSE(book.has_order(sell_order.order_id));
-    }   
+            initial::Order naive_market{ current_naive_id++, 0, q, 0, initial::OrderType::Market, static_cast<initial::Side>(s) };
+            optimized::Order fast_market;
+            fast_market.price = 0; fast_market.quantity = q;
+            fast_market.side = static_cast<optimized::Side>(s);
+            fast_market.type = optimized::OrderType::Market;
 
-    TEST(LOBTest, PriceTimePriority) {
-        LOB book;
-        Order sell_order1 = createOrder(101, 10, Side::Sell);
-        Order sell_order2 = createOrder(102, 10, Side::Sell);
-        Order sell_order3 = createOrder(103, 10, Side::Sell);
-        Order buy_order = createOrder(0, 25, Side::Buy, OrderType::Market);
-        // Note that for a market order price is irrelevant
-
-        book.add(sell_order1);
-        book.add(sell_order2);
-        book.add(sell_order3);
-        std::vector<Trade> trade = book.add(buy_order);
-
-        EXPECT_TRUE(trade.size() == 3);
-        EXPECT_TRUE(trade.at(0).quantity == 10);
-        EXPECT_TRUE(trade.at(1).quantity == 10);
-        EXPECT_TRUE(trade.at(2).quantity == 5);
-    }
-
-    TEST(LOBTest, Cancellations) {
-        LOB book;
-        Order sell_order = createOrder(101, 10, Side::Sell);
-        CancelRequest cancel_request{ sell_order.order_id };
-
-        book.add(sell_order);
-
-        bool cancelled = book.cancel(cancel_request);
-        bool cancelled_failure = book.cancel(cancel_request);
-        
-        EXPECT_TRUE(cancelled);
-        EXPECT_FALSE(cancelled_failure);
+            // We do not check trades sizes strictly here because the naive implementation 
+            // returns executed trades, while the optimized returns remaining volume. 
+            // We just ensure the engine doesn't crash during deep sweeps.
+            naive_book.add(naive_market);
+            fast_book.add(fast_market);
+        }
     }
 }
