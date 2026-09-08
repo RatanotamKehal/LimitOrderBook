@@ -13,10 +13,10 @@ LOB::LOB() {
 	free_list_head = 0;
 
 	for (OrderIndex i = 0; i + 1 < MEM_POOL_SIZE; i++) {
-		mem_pool[i].order.next = i + 1;
+		mem_pool[i].next = i + 1;
 		mem_pool[i].generation = 0;
 	}
-	mem_pool[MEM_POOL_SIZE - 1].order.next = INVALID_INDEX;
+	mem_pool[MEM_POOL_SIZE - 1].next = INVALID_INDEX;
 	mem_pool[MEM_POOL_SIZE - 1].generation = 0;
 
 	best_bid = MIN_PRICE;
@@ -72,10 +72,12 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 			}
 
 			best_ask = (block_index << 6) + std::countr_zero(bit_block);
+			if (limit_price < best_ask) { break; }
+
 			index = sell_orders[best_ask].head;
 		}
 
-		Order& match = mem_pool[index].order;
+		Order& match = mem_pool[index];
 		Quantity min_quantity = std::min(match.quantity, quantity);
 		match.quantity -= min_quantity;
 		quantity -= min_quantity;
@@ -87,12 +89,12 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 				clearSellBit(best_ask);
 			}
 			else {
-				mem_pool[match.next].order.prev = INVALID_INDEX;
+				mem_pool[match.next].prev = INVALID_INDEX;
 			}
 
 			OrderIndex prev_free = free_list_head;
 			free_list_head = index;
-			mem_pool[free_list_head].order.next = prev_free;
+			mem_pool[free_list_head].next = prev_free;
 		}
 	}
 	return quantity;
@@ -117,10 +119,12 @@ inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 			}
 
 			best_bid = (block_index << 6) + (63 - std::countl_zero(bit_block));
+			if (limit_price > best_bid) { break; }
+
 			index = buy_orders[best_bid].head;
 		}
 
-		Order& match = mem_pool[index].order;
+		Order& match = mem_pool[index];
 		Quantity min_quantity = std::min(match.quantity, quantity);
 		match.quantity -= min_quantity;
 		quantity -= min_quantity;
@@ -132,12 +136,12 @@ inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 				clearBuyBit(best_bid);
 			}
 			else {
-				mem_pool[match.next].order.prev = INVALID_INDEX;
+				mem_pool[match.next].prev = INVALID_INDEX;
 			}
 
 			OrderIndex prev_free = free_list_head;
 			free_list_head = index;
-			mem_pool[free_list_head].order.next = prev_free;
+			mem_pool[free_list_head].next = prev_free;
 		}
 	}
 	return quantity;
@@ -150,7 +154,7 @@ inline AddResult LOB::addRemainingToList(Order& order) {
 	};
 
 	OrderIndex allocated_index = free_list_head;
-	free_list_head = mem_pool[free_list_head].order.next;
+	free_list_head = mem_pool[free_list_head].next;
 
 	uint32_t curr_gen = ++mem_pool[allocated_index].generation;
 	uint64_t id = (static_cast<uint64_t>(curr_gen) << 32) | allocated_index;
@@ -180,13 +184,13 @@ inline AddResult LOB::addRemainingToList(Order& order) {
 		order.prev = INVALID_INDEX;
 	}
 	else {
-		mem_pool[level.tail].order.next = allocated_index;
+		mem_pool[level.tail].next = allocated_index;
 		order.prev = level.tail;
 		level.tail = allocated_index;
 	}
 
 	order.next = INVALID_INDEX;
-	mem_pool[allocated_index].order = order;
+	mem_pool[allocated_index] = order;
 
 	return { 0, id };
 }
@@ -219,9 +223,8 @@ bool LOB::cancel(uint64_t order_id) {
 
 	if (index >= mem_pool.size()) { return false; }
 
-	OrderSlot& slot = mem_pool[index];
-	if (slot.generation != generation) { return false; }
-	Order& order = slot.order;
+	Order& order = mem_pool[index];
+	if (order.generation != generation) { return false; }
 
 	if (order.next == INVALID_INDEX && order.prev == INVALID_INDEX) {
 		if (order.side == Side::Buy) {
@@ -242,7 +245,7 @@ bool LOB::cancel(uint64_t order_id) {
 		else {
 			sell_orders[order.price].tail = order.prev;
 		}
-		mem_pool[order.prev].order.next = INVALID_INDEX;
+		mem_pool[order.prev].next = INVALID_INDEX;
 	}
 	else if (order.prev == INVALID_INDEX) {
 		if (order.side == Side::Buy) {
@@ -251,11 +254,11 @@ bool LOB::cancel(uint64_t order_id) {
 		else {
 			sell_orders[order.price].head = order.next;
 		}
-		mem_pool[order.next].order.prev = INVALID_INDEX;
+		mem_pool[order.next].prev = INVALID_INDEX;
 	}
 	else {
-		mem_pool[order.prev].order.next = order.next;
-		mem_pool[order.next].order.prev = order.prev;
+		mem_pool[order.prev].next = order.next;
+		mem_pool[order.next].prev = order.prev;
 	}
 
 	OrderIndex prev_free = free_list_head;

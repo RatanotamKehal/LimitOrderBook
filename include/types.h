@@ -17,6 +17,7 @@ enum class OrderType : uint8_t {
 
 struct Order {
 	uint64_t time; // timestamp in ns
+	uint32_t generation;
 
 	Price price;
 	Quantity quantity;
@@ -31,11 +32,6 @@ struct Order {
 struct PriceLevel {
 	OrderIndex head;
 	OrderIndex tail;
-};
-
-struct OrderSlot {
-	Order order;
-	uint32_t generation;
 };
 
 struct AddResult {
