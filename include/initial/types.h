@@ -1,6 +1,6 @@
 #pragma once
 
-namespace lob {
+namespace initial {
 
 	using Price = uint64_t;
 	using Quantity = uint64_t;

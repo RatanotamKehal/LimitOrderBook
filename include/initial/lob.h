@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include "types.h"
 
-namespace lob {
+namespace initial {
 
 	class LOB {
 	private:
