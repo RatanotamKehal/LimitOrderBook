@@ -26,6 +26,14 @@ LOB::LOB() {
 	has_asks = false;
 }
 
+inline void LOB::freeOrder(OrderIndex index) {
+	Order& order = mem_pool[index];
+	++order.generation;
+	order.prev = INVALID_INDEX;
+	order.next = free_list_head;
+	free_list_head = index;
+}
+
 
 inline void LOB::setSellBit(Price price) {
 	const uint64_t block_index = price >> 6;
@@ -92,9 +100,7 @@ inline Quantity LOB::matchAgainstAsks(Quantity quantity, Price limit_price) {
 				mem_pool[match.next].prev = INVALID_INDEX;
 			}
 
-			OrderIndex prev_free = free_list_head;
-			free_list_head = index;
-			mem_pool[free_list_head].next = prev_free;
+			freeOrder(index);
 		}
 	}
 	return quantity;
@@ -139,9 +145,7 @@ inline Quantity LOB::matchAgainstBids(Quantity quantity, Price limit_price) {
 				mem_pool[match.next].prev = INVALID_INDEX;
 			}
 
-			OrderIndex prev_free = free_list_head;
-			free_list_head = index;
-			mem_pool[free_list_head].next = prev_free;
+			freeOrder(index);
 		}
 	}
 	return quantity;
@@ -156,8 +160,7 @@ inline AddResult LOB::addRemainingToList(Order& order) {
 	OrderIndex allocated_index = free_list_head;
 	free_list_head = mem_pool[free_list_head].next;
 
-	uint32_t curr_gen = ++mem_pool[allocated_index].generation;
-	uint64_t id = (static_cast<uint64_t>(curr_gen) << 32) | allocated_index;
+	Generation curr_gen = ++mem_pool[allocated_index].generation;
 
 	if (order.side == Side::Buy) {
 		if (!has_bids || order.price > best_bid) {
@@ -177,7 +180,6 @@ inline AddResult LOB::addRemainingToList(Order& order) {
 
 	if (level.head == INVALID_INDEX) {
 		(order.side == Side::Buy) ? setBuyBit(order.price) : setSellBit(order.price);
-		(order.side == Side::Buy) ? has_bids = true : has_asks = true;
 
 		level.head = allocated_index;
 		level.tail = allocated_index;
@@ -190,7 +192,10 @@ inline AddResult LOB::addRemainingToList(Order& order) {
 	}
 
 	order.next = INVALID_INDEX;
+	order.generation = curr_gen;
 	mem_pool[allocated_index] = order;
+	
+	OrderID id = makeOrderID(allocated_index, curr_gen);
 
 	return { 0, id };
 }
@@ -217,9 +222,9 @@ AddResult LOB::add(Order& order) {
 
 
 
-bool LOB::cancel(uint64_t order_id) {
-	OrderIndex index = static_cast<OrderIndex>(order_id & 0xFFFFFFFF);
-	uint32_t generation = static_cast<uint32_t>(order_id >> 32);
+bool LOB::cancel(OrderID order_id) {
+	OrderIndex index = getOrderIndex(order_id);
+	Generation generation = getGeneration(order_id);
 
 	if (index >= mem_pool.size()) { return false; }
 
@@ -261,9 +266,6 @@ bool LOB::cancel(uint64_t order_id) {
 		mem_pool[order.next].prev = order.prev;
 	}
 
-	OrderIndex prev_free = free_list_head;
-	free_list_head = index;
-	order.prev = INVALID_INDEX;
-	order.next = prev_free;
+	freeOrder(index);
 	return true;
 }

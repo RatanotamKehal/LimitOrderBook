@@ -1,6 +1,6 @@
 #pragma once
 #include <vector>
-#include <unordered_map>
+#include <limits>
 #include "types.h"
 
 inline constexpr uint64_t PRICE_MULTIPLIER = 10000; // 10,000
@@ -14,6 +14,16 @@ inline constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
 inline constexpr Price MAX_PRICE = ORDER_POOL_SIZE - 1;
 inline constexpr Price MIN_PRICE = 0;
 
+inline constexpr OrderID makeOrderID(OrderIndex index, Generation gen) {
+	return (static_cast<OrderID>(gen) << 32) | index;
+}
+inline constexpr OrderIndex getOrderIndex(OrderID id) {
+	return static_cast<OrderIndex>(id);
+}
+
+inline constexpr Generation getGeneration(OrderID id) {
+	return static_cast<Generation>(id >> 32);
+}
 
 class LOB {
 private:
@@ -40,10 +50,13 @@ private:
 	Quantity matchAgainstBids(Quantity quantity, Price limit_price);
 	AddResult addRemainingToList(Order& order);
 
+	void freeOrder(OrderIndex index);
+
+
 public:
 	LOB();
 
 	AddResult add(Order& order);
-	bool cancel(uint64_t order_id);
+	bool cancel(OrderID order_id);
 };
 

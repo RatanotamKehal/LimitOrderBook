@@ -4,6 +4,9 @@
 using Price = uint32_t;
 using Quantity = uint32_t; // For larger quantities, maybe implement Lot Sizes ex. 1 Quantity = 10,000 Shares
 using OrderIndex = uint32_t;
+using Generation = uint32_t;
+using OrderID = uint64_t;
+
 
 enum class Side : uint8_t {
 	Buy = 0,
@@ -17,7 +20,7 @@ enum class OrderType : uint8_t {
 
 struct Order {
 	uint64_t time; // timestamp in ns
-	uint32_t generation;
+	Generation generation;
 
 	Price price;
 	Quantity quantity;
@@ -36,5 +39,5 @@ struct PriceLevel {
 
 struct AddResult {
 	Quantity remaining_quantity;
-	uint64_t order_id;
+	OrderID order_id;
 };
