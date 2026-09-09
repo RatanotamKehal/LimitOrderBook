@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <vector>
 #include "optimized/lob.h"
+#include "initial/lob.h"
 
 // --- Helper for Percentiles ---
 static double p95(const std::vector<double>& v) {
@@ -34,13 +35,42 @@ static double p99(const std::vector<double>& v) {
     })
 
 // ==========================================
-// ISOLATED ADD (Batched to remove clock overhead)
+// SCENARIO 1: ISOLATED ADD
 // ==========================================
+static void BM_Initial_AddOnly_Depth(benchmark::State& state) {
+    int depth = state.range(0);
+    initial::LOB book;
+    uint64_t current_id = 1;
+
+    for (int i = 0; i < depth; ++i) {
+        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % 100)), 10, 0, initial::OrderType::Limit, initial::Side::Buy });
+    }
+
+    initial::Order target{ 0, 150, 10, 0, initial::OrderType::Limit, initial::Side::Buy };
+
+    while (state.KeepRunningBatch(1000)) {
+        std::vector<uint64_t> ids_to_cancel;
+        ids_to_cancel.reserve(1000);
+
+        for (int i = 0; i < 1000; ++i) {
+            target.order_id = current_id++;
+            book.add(target);
+            ids_to_cancel.push_back(target.order_id);
+        }
+
+        state.PauseTiming();
+        for (uint64_t id : ids_to_cancel) {
+            book.cancel(initial::CancelRequest{ id });
+        }
+        state.ResumeTiming();
+    }
+}
+DEPTH_BENCHMARK(BM_Initial_AddOnly_Depth);
+
 static void BM_Optimized_AddOnly_Depth(benchmark::State& state) {
     int depth = state.range(0);
     optimized::LOB book;
 
-    // Prefill the book
     for (int i = 0; i < depth; ++i) {
         optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
         dummy.side = optimized::Side::Buy; dummy.type = optimized::OrderType::Limit;
@@ -50,17 +80,14 @@ static void BM_Optimized_AddOnly_Depth(benchmark::State& state) {
     optimized::Order target; target.price = 150; target.quantity = 10;
     target.side = optimized::Side::Buy; target.type = optimized::OrderType::Limit;
 
-    // Use KeepRunningBatch so Google Benchmark automatically divides the total time by 1000
     while (state.KeepRunningBatch(1000)) {
         std::vector<uint64_t> ids_to_cancel;
         ids_to_cancel.reserve(1000);
 
-        // 1. Measure ONLY the Add operations
         for (int i = 0; i < 1000; ++i) {
             ids_to_cancel.push_back(book.add(target).order_id);
         }
 
-        // 2. Pause the timer to clean up the book without skewing the results
         state.PauseTiming();
         for (uint64_t id : ids_to_cancel) {
             book.cancel(id);
@@ -71,8 +98,37 @@ static void BM_Optimized_AddOnly_Depth(benchmark::State& state) {
 DEPTH_BENCHMARK(BM_Optimized_AddOnly_Depth);
 
 // ==========================================
-// ISOLATED CANCEL (Batched)
+// SCENARIO 2: ISOLATED CANCEL
 // ==========================================
+static void BM_Initial_CancelOnly_Depth(benchmark::State& state) {
+    int depth = state.range(0);
+    initial::LOB book;
+    uint64_t current_id = 1;
+
+    for (int i = 0; i < depth; ++i) {
+        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % 100)), 10, 0, initial::OrderType::Limit, initial::Side::Buy });
+    }
+
+    initial::Order target{ 0, 150, 10, 0, initial::OrderType::Limit, initial::Side::Buy };
+
+    while (state.KeepRunningBatch(1000)) {
+        state.PauseTiming();
+        std::vector<uint64_t> ids_to_cancel;
+        ids_to_cancel.reserve(1000);
+        for (int i = 0; i < 1000; ++i) {
+            target.order_id = current_id++;
+            book.add(target);
+            ids_to_cancel.push_back(target.order_id);
+        }
+        state.ResumeTiming();
+
+        for (uint64_t id : ids_to_cancel) {
+            book.cancel(initial::CancelRequest{ id });
+        }
+    }
+}
+DEPTH_BENCHMARK(BM_Initial_CancelOnly_Depth);
+
 static void BM_Optimized_CancelOnly_Depth(benchmark::State& state) {
     int depth = state.range(0);
     optimized::LOB book;
@@ -95,7 +151,6 @@ static void BM_Optimized_CancelOnly_Depth(benchmark::State& state) {
         }
         state.ResumeTiming();
 
-        // Measure ONLY the Cancel operations
         for (uint64_t id : ids_to_cancel) {
             book.cancel(id);
         }
@@ -104,8 +159,34 @@ static void BM_Optimized_CancelOnly_Depth(benchmark::State& state) {
 DEPTH_BENCHMARK(BM_Optimized_CancelOnly_Depth);
 
 // ==========================================
-// ISOLATED MATCH (Market Sweep)
+// SCENARIO 3: MARKET SWEEP
 // ==========================================
+static void BM_Initial_MatchSweep_Depth(benchmark::State& state) {
+    int depth = state.range(0);
+    initial::LOB book;
+    uint64_t current_id = 1;
+
+    for (int i = 0; i < depth; ++i) {
+        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % 100)), 10, 0, initial::OrderType::Limit, initial::Side::Sell });
+    }
+
+    initial::Order market_buy{ current_id++, 0, 50, 0, initial::OrderType::Market, initial::Side::Buy };
+
+    for (auto _ : state) {
+        auto trades = book.add(market_buy);
+        benchmark::DoNotOptimize(trades);
+
+        state.PauseTiming();
+        for (initial::Price p = 100; p < 105; ++p) {
+            book.add(initial::Order{ current_id++, p, 10, 0, initial::OrderType::Limit, initial::Side::Sell });
+        }
+        market_buy.quantity = 50;
+        market_buy.order_id = current_id++;
+        state.ResumeTiming();
+    }
+}
+DEPTH_BENCHMARK(BM_Initial_MatchSweep_Depth);
+
 static void BM_Optimized_MatchSweep_Depth(benchmark::State& state) {
     int depth = state.range(0);
     optimized::LOB book;
@@ -120,11 +201,9 @@ static void BM_Optimized_MatchSweep_Depth(benchmark::State& state) {
     market_buy.side = optimized::Side::Buy; market_buy.type = optimized::OrderType::Market;
 
     for (auto _ : state) {
-        // Measure the sweep
         auto result = book.add(market_buy);
         benchmark::DoNotOptimize(result);
 
-        // Pause to heal the book
         state.PauseTiming();
         for (optimized::Price p = 100; p < 105; ++p) {
             optimized::Order ask; ask.price = p; ask.quantity = 10;
