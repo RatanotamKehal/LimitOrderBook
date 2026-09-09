@@ -1,28 +1,27 @@
 #include <benchmark/benchmark.h>
 #include <algorithm>
 #include <vector>
+#include <cmath>
+#include <cassert>
 #include "optimized/lob.h"
 #include "initial/lob.h"
 
-// --- Helper for Percentiles ---
-static double p95(const std::vector<double>& v) {
+// --- Safe Interpolated Percentiles ---
+static double percentile(const std::vector<double>& v, double p) {
     if (v.empty()) return 0.0;
     std::vector<double> copy = v;
     std::sort(copy.begin(), copy.end());
-    return copy[static_cast<size_t>(copy.size() * 0.95)];
+    const size_t index = static_cast<size_t>(std::ceil(p * copy.size())) - 1;
+    return copy[std::min(index, copy.size() - 1)];
 }
 
-static double p99(const std::vector<double>& v) {
-    if (v.empty()) return 0.0;
-    std::vector<double> copy = v;
-    std::sort(copy.begin(), copy.end());
-    return copy[static_cast<size_t>(copy.size() * 0.99)];
-}
+static double p95(const std::vector<double>& v) { return percentile(v, 0.95); }
+static double p99(const std::vector<double>& v) { return percentile(v, 0.99); }
 
-#define DEPTH_BENCHMARK(func) \
+#define HFT_BENCHMARK(func) \
     BENCHMARK(func) \
     ->RangeMultiplier(10)->Range(100, 10000000) \
-    ->Repetitions(10) \
+    ->Repetitions(30) \
     ->ComputeStatistics("median", [](const std::vector<double>& v) { \
         std::vector<double> copy = v; \
         std::sort(copy.begin(), copy.end()); \
@@ -34,165 +33,185 @@ static double p99(const std::vector<double>& v) {
         return *std::max_element(v.begin(), v.end()); \
     })
 
+// --- Deterministic Constants ---
+constexpr std::size_t NUM_PRICE_LEVELS = 1000;
+constexpr uint32_t ORDER_QTY = 10;
+
 // ==========================================
 // SCENARIO 1: ISOLATED ADD
 // ==========================================
-static void BM_Initial_AddOnly_Depth(benchmark::State& state) {
-    int depth = state.range(0);
+static void BM_Initial_Add(benchmark::State& state) {
+    const std::size_t initial_orders = static_cast<std::size_t>(state.range(0));
     initial::LOB book;
     uint64_t current_id = 1;
 
-    for (int i = 0; i < depth; ++i) {
-        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % 100)), 10, 0, initial::OrderType::Limit, initial::Side::Buy });
+    for (std::size_t i = 0; i < initial_orders; ++i) {
+        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % NUM_PRICE_LEVELS)), ORDER_QTY, 0, initial::OrderType::Limit, initial::Side::Buy });
     }
 
-    initial::Order target{ 0, 150, 10, 0, initial::OrderType::Limit, initial::Side::Buy };
+    initial::Order target{ 0, 150, ORDER_QTY, 0, initial::OrderType::Limit, initial::Side::Buy };
+    std::vector<uint64_t> ids;
+    ids.reserve(1000);
 
-    while (state.KeepRunningBatch(1000)) {
-        std::vector<uint64_t> ids_to_cancel;
-        ids_to_cancel.reserve(1000);
-
+    for (auto _ : state) {
+        ids.clear();
         for (int i = 0; i < 1000; ++i) {
             target.order_id = current_id++;
             book.add(target);
-            ids_to_cancel.push_back(target.order_id);
+            ids.push_back(target.order_id);
         }
 
         state.PauseTiming();
-        for (uint64_t id : ids_to_cancel) {
-            book.cancel(initial::CancelRequest{ id });
+        for (uint64_t id : ids) {
+            bool success = book.cancel(initial::CancelRequest{ id });
+            assert(success); // Correctness validation
         }
         state.ResumeTiming();
     }
+    state.SetItemsProcessed(state.iterations() * 1000);
 }
-DEPTH_BENCHMARK(BM_Initial_AddOnly_Depth);
+HFT_BENCHMARK(BM_Initial_Add);
 
-static void BM_Optimized_AddOnly_Depth(benchmark::State& state) {
-    int depth = state.range(0);
+static void BM_Optimized_Add(benchmark::State& state) {
+    const std::size_t initial_orders = static_cast<std::size_t>(state.range(0));
     optimized::LOB book;
 
-    for (int i = 0; i < depth; ++i) {
-        optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
+    for (std::size_t i = 0; i < initial_orders; ++i) {
+        optimized::Order dummy; dummy.price = 100 + (i % NUM_PRICE_LEVELS); dummy.quantity = ORDER_QTY;
         dummy.side = optimized::Side::Buy; dummy.type = optimized::OrderType::Limit;
         book.add(dummy);
     }
 
-    optimized::Order target; target.price = 150; target.quantity = 10;
+    optimized::Order target; target.price = 150; target.quantity = ORDER_QTY;
     target.side = optimized::Side::Buy; target.type = optimized::OrderType::Limit;
+    std::vector<uint64_t> ids;
+    ids.reserve(1000);
 
-    while (state.KeepRunningBatch(1000)) {
-        std::vector<uint64_t> ids_to_cancel;
-        ids_to_cancel.reserve(1000);
-
+    for (auto _ : state) {
+        ids.clear();
         for (int i = 0; i < 1000; ++i) {
-            ids_to_cancel.push_back(book.add(target).order_id);
+            auto result = book.add(target);
+            benchmark::DoNotOptimize(result);
+            ids.push_back(result.order_id);
         }
 
         state.PauseTiming();
-        for (uint64_t id : ids_to_cancel) {
-            book.cancel(id);
+        for (uint64_t id : ids) {
+            bool success = book.cancel(id);
+            assert(success); // Correctness validation
         }
         state.ResumeTiming();
     }
+    state.SetItemsProcessed(state.iterations() * 1000);
 }
-DEPTH_BENCHMARK(BM_Optimized_AddOnly_Depth);
+HFT_BENCHMARK(BM_Optimized_Add);
 
 // ==========================================
 // SCENARIO 2: ISOLATED CANCEL
 // ==========================================
-static void BM_Initial_CancelOnly_Depth(benchmark::State& state) {
-    int depth = state.range(0);
+static void BM_Initial_Cancel(benchmark::State& state) {
+    const std::size_t initial_orders = static_cast<std::size_t>(state.range(0));
     initial::LOB book;
     uint64_t current_id = 1;
 
-    for (int i = 0; i < depth; ++i) {
-        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % 100)), 10, 0, initial::OrderType::Limit, initial::Side::Buy });
+    for (std::size_t i = 0; i < initial_orders; ++i) {
+        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % NUM_PRICE_LEVELS)), ORDER_QTY, 0, initial::OrderType::Limit, initial::Side::Buy });
     }
 
-    initial::Order target{ 0, 150, 10, 0, initial::OrderType::Limit, initial::Side::Buy };
+    initial::Order target{ 0, 150, ORDER_QTY, 0, initial::OrderType::Limit, initial::Side::Buy };
+    std::vector<uint64_t> ids;
+    ids.reserve(1000);
 
-    while (state.KeepRunningBatch(1000)) {
+    for (auto _ : state) {
         state.PauseTiming();
-        std::vector<uint64_t> ids_to_cancel;
-        ids_to_cancel.reserve(1000);
+        ids.clear();
         for (int i = 0; i < 1000; ++i) {
             target.order_id = current_id++;
             book.add(target);
-            ids_to_cancel.push_back(target.order_id);
+            ids.push_back(target.order_id);
         }
         state.ResumeTiming();
 
-        for (uint64_t id : ids_to_cancel) {
-            book.cancel(initial::CancelRequest{ id });
+        for (uint64_t id : ids) {
+            bool success = book.cancel(initial::CancelRequest{ id });
+            assert(success);
+            benchmark::DoNotOptimize(success);
         }
     }
+    state.SetItemsProcessed(state.iterations() * 1000);
 }
-DEPTH_BENCHMARK(BM_Initial_CancelOnly_Depth);
+HFT_BENCHMARK(BM_Initial_Cancel);
 
-static void BM_Optimized_CancelOnly_Depth(benchmark::State& state) {
-    int depth = state.range(0);
+static void BM_Optimized_Cancel(benchmark::State& state) {
+    const std::size_t initial_orders = static_cast<std::size_t>(state.range(0));
     optimized::LOB book;
 
-    for (int i = 0; i < depth; ++i) {
-        optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
+    for (std::size_t i = 0; i < initial_orders; ++i) {
+        optimized::Order dummy; dummy.price = 100 + (i % NUM_PRICE_LEVELS); dummy.quantity = ORDER_QTY;
         dummy.side = optimized::Side::Buy; dummy.type = optimized::OrderType::Limit;
         book.add(dummy);
     }
 
-    optimized::Order target; target.price = 150; target.quantity = 10;
+    optimized::Order target; target.price = 150; target.quantity = ORDER_QTY;
     target.side = optimized::Side::Buy; target.type = optimized::OrderType::Limit;
+    std::vector<uint64_t> ids;
+    ids.reserve(1000);
 
-    while (state.KeepRunningBatch(1000)) {
+    for (auto _ : state) {
         state.PauseTiming();
-        std::vector<uint64_t> ids_to_cancel;
-        ids_to_cancel.reserve(1000);
+        ids.clear();
         for (int i = 0; i < 1000; ++i) {
-            ids_to_cancel.push_back(book.add(target).order_id);
+            auto result = book.add(target);
+            ids.push_back(result.order_id);
         }
         state.ResumeTiming();
 
-        for (uint64_t id : ids_to_cancel) {
-            book.cancel(id);
+        for (uint64_t id : ids) {
+            bool success = book.cancel(id);
+            assert(success);
+            benchmark::DoNotOptimize(success);
         }
     }
+    state.SetItemsProcessed(state.iterations() * 1000);
 }
-DEPTH_BENCHMARK(BM_Optimized_CancelOnly_Depth);
+HFT_BENCHMARK(BM_Optimized_Cancel);
 
 // ==========================================
-// SCENARIO 3: MARKET SWEEP
+// SCENARIO 3: MARKET SWEEP (5 Distinct Levels)
 // ==========================================
-static void BM_Initial_MatchSweep_Depth(benchmark::State& state) {
-    int depth = state.range(0);
+static void BM_Initial_MatchSweep(benchmark::State& state) {
+    const std::size_t initial_orders = static_cast<std::size_t>(state.range(0));
     initial::LOB book;
     uint64_t current_id = 1;
 
-    for (int i = 0; i < depth; ++i) {
-        book.add(initial::Order{ current_id++, static_cast<initial::Price>(100 + (i % 100)), 10, 0, initial::OrderType::Limit, initial::Side::Sell });
+    for (std::size_t i = 0; i < initial_orders; ++i) {
+        book.add(initial::Order{ current_id++, static_cast<initial::Price>(500 + (i % NUM_PRICE_LEVELS)), ORDER_QTY, 0, initial::OrderType::Limit, initial::Side::Sell });
     }
 
-    initial::Order market_buy{ current_id++, 0, 50, 0, initial::OrderType::Market, initial::Side::Buy };
+    initial::Order market_buy{ 0, 0, 50, 0, initial::OrderType::Market, initial::Side::Buy };
 
     for (auto _ : state) {
-        auto trades = book.add(market_buy);
-        benchmark::DoNotOptimize(trades);
-
         state.PauseTiming();
         for (initial::Price p = 100; p < 105; ++p) {
-            book.add(initial::Order{ current_id++, p, 10, 0, initial::OrderType::Limit, initial::Side::Sell });
+            book.add(initial::Order{ current_id++, p, ORDER_QTY, 0, initial::OrderType::Limit, initial::Side::Sell });
         }
         market_buy.quantity = 50;
         market_buy.order_id = current_id++;
         state.ResumeTiming();
-    }
-}
-DEPTH_BENCHMARK(BM_Initial_MatchSweep_Depth);
 
-static void BM_Optimized_MatchSweep_Depth(benchmark::State& state) {
-    int depth = state.range(0);
+        auto trades = book.add(market_buy);
+        benchmark::DoNotOptimize(trades);
+    }
+    state.SetItemsProcessed(state.iterations());
+}
+HFT_BENCHMARK(BM_Initial_MatchSweep);
+
+static void BM_Optimized_MatchSweep(benchmark::State& state) {
+    const std::size_t initial_orders = static_cast<std::size_t>(state.range(0));
     optimized::LOB book;
 
-    for (int i = 0; i < depth; ++i) {
-        optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
+    for (std::size_t i = 0; i < initial_orders; ++i) {
+        optimized::Order dummy; dummy.price = 500 + (i % NUM_PRICE_LEVELS); dummy.quantity = ORDER_QTY;
         dummy.side = optimized::Side::Sell; dummy.type = optimized::OrderType::Limit;
         book.add(dummy);
     }
@@ -201,19 +220,20 @@ static void BM_Optimized_MatchSweep_Depth(benchmark::State& state) {
     market_buy.side = optimized::Side::Buy; market_buy.type = optimized::OrderType::Market;
 
     for (auto _ : state) {
-        auto result = book.add(market_buy);
-        benchmark::DoNotOptimize(result);
-
         state.PauseTiming();
         for (optimized::Price p = 100; p < 105; ++p) {
-            optimized::Order ask; ask.price = p; ask.quantity = 10;
+            optimized::Order ask; ask.price = p; ask.quantity = ORDER_QTY;
             ask.side = optimized::Side::Sell; ask.type = optimized::OrderType::Limit;
             book.add(ask);
         }
         market_buy.quantity = 50;
         state.ResumeTiming();
+
+        auto result = book.add(market_buy);
+        benchmark::DoNotOptimize(result);
     }
+    state.SetItemsProcessed(state.iterations());
 }
-DEPTH_BENCHMARK(BM_Optimized_MatchSweep_Depth);
+HFT_BENCHMARK(BM_Optimized_MatchSweep);
 
 BENCHMARK_MAIN();
