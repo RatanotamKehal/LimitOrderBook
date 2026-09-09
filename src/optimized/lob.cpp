@@ -81,7 +81,7 @@ namespace optimized {
 					bit_block = sell_bitvector[block_index];
 				}
 
-				best_ask = (block_index << 6) + std::countr_zero(bit_block);
+				best_ask = static_cast<Price>((block_index << 6) + std::countr_zero(bit_block));
 				if (limit_price < best_ask) { break; }
 
 				index = sell_orders[best_ask].head;
@@ -126,7 +126,7 @@ namespace optimized {
 					bit_block = buy_bitvector[block_index];
 				}
 
-				best_bid = (block_index << 6) + (63 - std::countl_zero(bit_block));
+				best_bid = static_cast<Price>((block_index << 6) + (63 - std::countl_zero(bit_block)));
 				if (limit_price > best_bid) { break; }
 
 				index = buy_orders[best_bid].head;
