@@ -10,7 +10,7 @@ namespace optimized {
 	inline constexpr OrderIndex INVALID_INDEX = std::numeric_limits<OrderIndex>::max();
 	inline constexpr uint64_t INVALID_ORDER_ID = std::numeric_limits<uint64_t>::max();
 
-	inline constexpr uint64_t MEM_POOL_SIZE{ 1 << 20 }; // 1,048,576
+	inline constexpr uint64_t MEM_POOL_SIZE{ 1 << 24 }; // 16,777,216
 	inline constexpr uint64_t ORDER_POOL_SIZE{ 1 << 19 }; // 524,288
 
 	inline constexpr Price MAX_PRICE = ORDER_POOL_SIZE - 1;

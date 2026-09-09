@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <vector>
 #include "optimized/lob.h"
-#include "initial/lob.h"
 
 // --- Helper for Percentiles ---
 static double p95(const std::vector<double>& v) {
@@ -19,10 +18,10 @@ static double p99(const std::vector<double>& v) {
     return copy[static_cast<size_t>(copy.size() * 0.99)];
 }
 
-// Custom Macro to apply Repetitions and Stats universally
-#define HFT_BENCHMARK(func) \
+#define DEPTH_BENCHMARK(func) \
     BENCHMARK(func) \
-    ->Repetitions(30) \
+    ->RangeMultiplier(10)->Range(100, 10000000) \
+    ->Repetitions(10) \
     ->ComputeStatistics("median", [](const std::vector<double>& v) { \
         std::vector<double> copy = v; \
         std::sort(copy.begin(), copy.end()); \
@@ -35,106 +34,100 @@ static double p99(const std::vector<double>& v) {
     })
 
 // ==========================================
-// SCENARIO 1: Adding a Resting Order
+// ISOLATED ADD (Batched to remove clock overhead)
 // ==========================================
-static void BM_Initial_AddResting(benchmark::State& state) {
-    initial::LOB book;
-    initial::Order order{ 1, 100, 10, 0, initial::OrderType::Limit, initial::Side::Buy };
-    for (auto _ : state) {
-        book.add(order);
-        state.PauseTiming();
-        book.cancel(initial::CancelRequest{ 1 });
-        state.ResumeTiming();
-    }
-}
-HFT_BENCHMARK(BM_Initial_AddResting);
-
-static void BM_Optimized_AddResting(benchmark::State& state) {
+static void BM_Optimized_AddOnly_Depth(benchmark::State& state) {
+    int depth = state.range(0);
     optimized::LOB book;
-    optimized::Order order;
-    order.price = 100; order.quantity = 10;
-    order.side = optimized::Side::Buy; order.type = optimized::OrderType::Limit;
-    for (auto _ : state) {
-        auto result = book.add(order);
-        benchmark::DoNotOptimize(result);
-        state.PauseTiming();
-        book.cancel(result.order_id);
-        state.ResumeTiming();
-    }
-}
-HFT_BENCHMARK(BM_Optimized_AddResting);
 
-// ==========================================
-// SCENARIO 2: O(1) Cancellation
-// ==========================================
-static void BM_Initial_Cancel(benchmark::State& state) {
-    initial::LOB book;
-    initial::Order order{ 1, 100, 10, 0, initial::OrderType::Limit, initial::Side::Buy };
-    for (auto _ : state) {
-        state.PauseTiming();
-        book.add(order);
-        state.ResumeTiming();
-        bool success = book.cancel(initial::CancelRequest{ 1 });
-        benchmark::DoNotOptimize(success);
+    // Prefill the book
+    for (int i = 0; i < depth; ++i) {
+        optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
+        dummy.side = optimized::Side::Buy; dummy.type = optimized::OrderType::Limit;
+        book.add(dummy);
     }
-}
-HFT_BENCHMARK(BM_Initial_Cancel);
 
-static void BM_Optimized_Cancel(benchmark::State& state) {
-    optimized::LOB book;
-    optimized::Order order;
-    order.price = 100; order.quantity = 10;
-    order.side = optimized::Side::Buy; order.type = optimized::OrderType::Limit;
-    for (auto _ : state) {
-        state.PauseTiming();
-        auto result = book.add(order);
-        state.ResumeTiming();
-        bool success = book.cancel(result.order_id);
-        benchmark::DoNotOptimize(success);
-    }
-}
-HFT_BENCHMARK(BM_Optimized_Cancel);
+    optimized::Order target; target.price = 150; target.quantity = 10;
+    target.side = optimized::Side::Buy; target.type = optimized::OrderType::Limit;
 
-// ==========================================
-// SCENARIO 3: Aggressive Market Sweep (5 Levels)
-// ==========================================
-static void BM_Initial_MarketSweep(benchmark::State& state) {
-    initial::LOB book;
-    for (initial::Price p = 100; p < 105; ++p) {
-        book.add(initial::Order{ p, p, 10, 0, initial::OrderType::Limit, initial::Side::Sell }); // Using p as ID
-    }
-    initial::Order market_buy{ 999, 0, 50, 0, initial::OrderType::Market, initial::Side::Buy };
-    for (auto _ : state) {
-        auto trades = book.add(market_buy);
-        benchmark::DoNotOptimize(trades);
-        state.PauseTiming();
-        for (initial::Price p = 100; p < 105; ++p) {
-            book.add(initial::Order{ p, p, 10, 0, initial::OrderType::Limit, initial::Side::Sell });
+    // Use KeepRunningBatch so Google Benchmark automatically divides the total time by 1000
+    while (state.KeepRunningBatch(1000)) {
+        std::vector<uint64_t> ids_to_cancel;
+        ids_to_cancel.reserve(1000);
+
+        // 1. Measure ONLY the Add operations
+        for (int i = 0; i < 1000; ++i) {
+            ids_to_cancel.push_back(book.add(target).order_id);
         }
-        market_buy.quantity = 50;
+
+        // 2. Pause the timer to clean up the book without skewing the results
+        state.PauseTiming();
+        for (uint64_t id : ids_to_cancel) {
+            book.cancel(id);
+        }
         state.ResumeTiming();
     }
 }
-HFT_BENCHMARK(BM_Initial_MarketSweep);
+DEPTH_BENCHMARK(BM_Optimized_AddOnly_Depth);
 
-static void BM_Optimized_MarketSweep(benchmark::State& state) {
+// ==========================================
+// ISOLATED CANCEL (Batched)
+// ==========================================
+static void BM_Optimized_CancelOnly_Depth(benchmark::State& state) {
+    int depth = state.range(0);
     optimized::LOB book;
-    for (optimized::Price p = 100; p < 105; ++p) {
-        optimized::Order ask;
-        ask.price = p; ask.quantity = 10;
-        ask.side = optimized::Side::Sell; ask.type = optimized::OrderType::Limit;
-        book.add(ask);
+
+    for (int i = 0; i < depth; ++i) {
+        optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
+        dummy.side = optimized::Side::Buy; dummy.type = optimized::OrderType::Limit;
+        book.add(dummy);
     }
-    optimized::Order market_buy;
-    market_buy.price = 0; market_buy.quantity = 50;
+
+    optimized::Order target; target.price = 150; target.quantity = 10;
+    target.side = optimized::Side::Buy; target.type = optimized::OrderType::Limit;
+
+    while (state.KeepRunningBatch(1000)) {
+        state.PauseTiming();
+        std::vector<uint64_t> ids_to_cancel;
+        ids_to_cancel.reserve(1000);
+        for (int i = 0; i < 1000; ++i) {
+            ids_to_cancel.push_back(book.add(target).order_id);
+        }
+        state.ResumeTiming();
+
+        // Measure ONLY the Cancel operations
+        for (uint64_t id : ids_to_cancel) {
+            book.cancel(id);
+        }
+    }
+}
+DEPTH_BENCHMARK(BM_Optimized_CancelOnly_Depth);
+
+// ==========================================
+// ISOLATED MATCH (Market Sweep)
+// ==========================================
+static void BM_Optimized_MatchSweep_Depth(benchmark::State& state) {
+    int depth = state.range(0);
+    optimized::LOB book;
+
+    for (int i = 0; i < depth; ++i) {
+        optimized::Order dummy; dummy.price = 100 + (i % 100); dummy.quantity = 10;
+        dummy.side = optimized::Side::Sell; dummy.type = optimized::OrderType::Limit;
+        book.add(dummy);
+    }
+
+    optimized::Order market_buy; market_buy.price = 0; market_buy.quantity = 50;
     market_buy.side = optimized::Side::Buy; market_buy.type = optimized::OrderType::Market;
+
     for (auto _ : state) {
+        // Measure the sweep
         auto result = book.add(market_buy);
         benchmark::DoNotOptimize(result);
+
+        // Pause to heal the book
         state.PauseTiming();
         for (optimized::Price p = 100; p < 105; ++p) {
-            optimized::Order ask;
-            ask.price = p; ask.quantity = 10;
+            optimized::Order ask; ask.price = p; ask.quantity = 10;
             ask.side = optimized::Side::Sell; ask.type = optimized::OrderType::Limit;
             book.add(ask);
         }
@@ -142,6 +135,6 @@ static void BM_Optimized_MarketSweep(benchmark::State& state) {
         state.ResumeTiming();
     }
 }
-HFT_BENCHMARK(BM_Optimized_MarketSweep);
+DEPTH_BENCHMARK(BM_Optimized_MatchSweep_Depth);
 
 BENCHMARK_MAIN();
