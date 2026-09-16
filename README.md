@@ -73,7 +73,7 @@ Both engines are subjected to the same deterministic workload and price/quantity
 
 *Source: CPU Median times derived from batch averages*
 
-📈 Scaling: Latency vs. Book Size
+**Scaling: Latency vs. Book Size**
 These benchmarks evaluate how each implementation behaves as the number of resting orders increases. 
 The optimized engine maintains approximately constant measured latency over the tested range, while the pointer-heavy baseline 
 degrades substantially as the working set grows.
