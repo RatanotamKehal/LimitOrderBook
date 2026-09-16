@@ -1,22 +1,9 @@
 #include <benchmark/benchmark.h>
 #include <algorithm>
 #include <vector>
-#include <cmath>
-#include <cassert>
+#include <cstdlib>
 #include "optimized/lob.h"
 #include "initial/lob.h"
-
-// --- Safe Interpolated Percentiles ---
-static double percentile(const std::vector<double>& v, double p) {
-    if (v.empty()) return 0.0;
-    std::vector<double> copy = v;
-    std::sort(copy.begin(), copy.end());
-    const size_t index = static_cast<size_t>(std::ceil(p * copy.size())) - 1;
-    return copy[std::min(index, copy.size() - 1)];
-}
-
-static double p95(const std::vector<double>& v) { return percentile(v, 0.95); }
-static double p99(const std::vector<double>& v) { return percentile(v, 0.99); }
 
 #define HFT_BENCHMARK(func) \
     BENCHMARK(func) \
@@ -27,13 +14,10 @@ static double p99(const std::vector<double>& v) { return percentile(v, 0.99); }
         std::sort(copy.begin(), copy.end()); \
         return copy[copy.size() / 2]; \
     }) \
-    ->ComputeStatistics("p95", p95) \
-    ->ComputeStatistics("p99", p99) \
     ->ComputeStatistics("max", [](const std::vector<double>& v) { \
         return *std::max_element(v.begin(), v.end()); \
     })
 
-// --- Deterministic Constants ---
 constexpr std::size_t NUM_PRICE_LEVELS = 1000;
 constexpr uint32_t ORDER_QTY = 10;
 
@@ -57,14 +41,16 @@ static void BM_Initial_Add(benchmark::State& state) {
         ids.clear();
         for (int i = 0; i < 1000; ++i) {
             target.order_id = current_id++;
-            book.add(target);
+            auto trades = book.add(target);
+            benchmark::DoNotOptimize(trades);
             ids.push_back(target.order_id);
         }
 
         state.PauseTiming();
         for (uint64_t id : ids) {
             bool success = book.cancel(initial::CancelRequest{ id });
-            assert(success); // Correctness validation
+            if (!success) { std::abort(); }
+            benchmark::DoNotOptimize(success);
         }
         state.ResumeTiming();
     }
@@ -98,7 +84,8 @@ static void BM_Optimized_Add(benchmark::State& state) {
         state.PauseTiming();
         for (uint64_t id : ids) {
             bool success = book.cancel(id);
-            assert(success); // Correctness validation
+            if (!success) { std::abort(); }
+            benchmark::DoNotOptimize(success);
         }
         state.ResumeTiming();
     }
@@ -134,7 +121,7 @@ static void BM_Initial_Cancel(benchmark::State& state) {
 
         for (uint64_t id : ids) {
             bool success = book.cancel(initial::CancelRequest{ id });
-            assert(success);
+            if (!success) { std::abort(); }
             benchmark::DoNotOptimize(success);
         }
     }
@@ -168,7 +155,7 @@ static void BM_Optimized_Cancel(benchmark::State& state) {
 
         for (uint64_t id : ids) {
             bool success = book.cancel(id);
-            assert(success);
+            if (!success) { std::abort(); }
             benchmark::DoNotOptimize(success);
         }
     }
